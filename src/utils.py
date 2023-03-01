@@ -12,19 +12,29 @@ from src import ff_mnist, ff_model
 
 
 def parse_args(opt):
+    '''为 np/torch/random 都设置同一种子, 并打印本次实验的 config 信息.'''
     np.random.seed(opt.seed)
     torch.manual_seed(opt.seed)
     random.seed(opt.seed)
 
-    print(OmegaConf.to_yaml(opt))
+    print(OmegaConf.to_yaml(opt))   # 输出配置文件的所有参数信息.
     return opt
+
+
+def show_model_parameters(opt):
+    '''打印出 model.classification_loss.parameters(), 查看其具体有哪些参数.'''
+    model = ff_model.FF_model(opt)
+    if "cuda" in opt.device:
+        model = model.cuda() 
+    for x in model.classification_loss.parameters():
+        print(x)
 
 
 def get_model_and_optimizer(opt):
     model = ff_model.FF_model(opt)
     if "cuda" in opt.device:
         model = model.cuda()
-    print(model, "\n")
+    print(model, "\n")  # 输出 FF_model 的组件信息.
 
     # Create optimizer with different hyper-parameters for the main model
     # and the downstream classification model.
@@ -32,16 +42,22 @@ def get_model_and_optimizer(opt):
         p
         for p in model.parameters()
         if all(p is not x for x in model.classification_loss.parameters())
+        # 疑问: 经试验, model.classification_loss.parameters() 是一个空的 generator?
     ]
+    # Torch.optim 的 "per-parameter options" 初始化方法: 用多个字典定义多个独立的 parameter group.
+    # 纠错: main model 中的参数是否应该是 model.model.parameters(),
+    # 而 downstream classification model 中的参数是否应该是 model.linear_classifier.parameters()?
     optimizer = torch.optim.SGD(
         [
             {
+                # main model 中需要更新的参数.
                 "params": main_model_params,
                 "lr": opt.training.learning_rate,
                 "weight_decay": opt.training.weight_decay,
                 "momentum": opt.training.momentum,
             },
             {
+                # downstream classification model 中需要更新的参数.
                 "params": model.classification_loss.parameters(),
                 "lr": opt.training.downstream_learning_rate,
                 "weight_decay": opt.training.downstream_weight_decay,
@@ -53,6 +69,7 @@ def get_model_and_optimizer(opt):
 
 
 def get_data(opt, partition):
+    '''由 FF_MNIST dataset 封装返回一个 dataloader'''
     dataset = ff_mnist.FF_MNIST(opt, partition)
 
     # Improve reproducibility in dataloader.
@@ -78,6 +95,8 @@ def seed_worker(worker_id):
 
 
 def get_MNIST_partition(opt, partition):
+    '''获取 dataset 的主要成分(用于 dataset 的构造)'''
+    # 这里的 dataset 只被 transform 成为 Tensor, 没有经过 normalization 或 flatten. 
     if partition in ["train", "val", "train_val"]:
         mnist = torchvision.datasets.MNIST(
             os.path.join(get_original_cwd(), opt.input.path),
@@ -95,6 +114,7 @@ def get_MNIST_partition(opt, partition):
     else:
         raise NotImplementedError
 
+    # 分 train 与 val 两种情况, 进一步分割 training set.
     if partition == "train":
         mnist = torch.utils.data.Subset(mnist, range(50000))
     elif partition == "val":
@@ -103,19 +123,21 @@ def get_MNIST_partition(opt, partition):
             train=True,
             download=True,
             transform=torchvision.transforms.ToTensor(),
-        )
+        )   # 这里为什么要再写一遍完全相同的数据集? 这样会打乱得到的 mnist 中图像的顺序吗?
         mnist = torch.utils.data.Subset(mnist, range(50000, 60000))
 
     return mnist
 
 
 def dict_to_cuda(dict):
+    '''把 dict 中存储的 value 放到 cuda 上'''
     for key, value in dict.items():
         dict[key] = value.cuda(non_blocking=True)
     return dict
 
 
 def preprocess_inputs(opt, inputs, labels):
+    '''把 inputs 和 labels 两个 dict 都放到 cuda 上'''
     if "cuda" in opt.device:
         inputs = dict_to_cuda(inputs)
         labels = dict_to_cuda(labels)
@@ -123,6 +145,7 @@ def preprocess_inputs(opt, inputs, labels):
 
 
 def get_linear_cooldown_lr(opt, epoch, lr):
+    '''当 epoch 过半之后, 对于每个新的 epoch, lr 都会以线性的速率减小.'''
     if epoch > (opt.training.epochs // 2):
         return lr * 2 * (1 + opt.training.epochs - epoch) / opt.training.epochs
     else:
@@ -130,6 +153,7 @@ def get_linear_cooldown_lr(opt, epoch, lr):
 
 
 def update_learning_rate(optimizer, opt, epoch):
+    '''在每个新的 epoch 都要 cooldown 当前 optimizer 的 lr.'''
     optimizer.param_groups[0]["lr"] = get_linear_cooldown_lr(
         opt, epoch, opt.training.learning_rate
     )
