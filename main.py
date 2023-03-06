@@ -2,7 +2,9 @@ import time
 from collections import defaultdict
 
 import hydra
+import wandb
 import torch
+import omegaconf
 from omegaconf import DictConfig
 
 from src import utils
@@ -68,9 +70,15 @@ def validate_or_test(opt, model, partition, epoch=None):
     model.train()   # test 结束后把 model 状态恢复到默认的 train().
 
 
-@hydra.main(config_path=".", config_name="config", version_base=None)
+@hydra.main(version_base=None, config_path="configs/", config_name="defaults")
 def my_main(opt: DictConfig) -> None:
     opt = utils.parse_args(opt)
+
+    wandb_cfg = omegaconf.OmegaConf.to_container(
+        opt, resolve=True, throw_on_missing=True
+    )
+    wandb.init(entity=opt.wandb.setup.entity, project=opt.wandb.setup.project, config=wandb_cfg)
+
     model, optimizer = utils.get_model_and_optimizer(opt)
     model = train(opt, model, optimizer)
     validate_or_test(opt, model, "val")
@@ -78,13 +86,16 @@ def my_main(opt: DictConfig) -> None:
     if opt.training.final_test:
         validate_or_test(opt, model, "test")
 
+    wandb.finish()
 
-@hydra.main(config_path=".", config_name="config", version_base=None)
+
+@hydra.main(version_base=None, config_path="configs/", config_name="defaults")
 def show_parameters(opt: DictConfig) -> None:
+    '''(自定义)查看 model.parameters() 属性.'''
     opt = utils.parse_args(opt)
     utils.show_model_parameters(opt)
 
 
 if __name__ == "__main__":
     my_main()
-    # show_parameters()
+

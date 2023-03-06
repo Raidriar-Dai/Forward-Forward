@@ -5,6 +5,8 @@ from datetime import timedelta
 import numpy as np
 import torch
 import torchvision
+
+import wandb
 from hydra.utils import get_original_cwd
 from omegaconf import OmegaConf
 
@@ -12,17 +14,17 @@ from src import ff_mnist, ff_model
 
 
 def parse_args(opt):
-    '''为 np/torch/random 都设置同一种子, 并打印本次实验的 config 信息.'''
+    '''为 np/torch/random 都设置同一种子, 并打印本次实验的 config 信息, 最后原样返回 opt.'''
     np.random.seed(opt.seed)
     torch.manual_seed(opt.seed)
     random.seed(opt.seed)
 
-    print(OmegaConf.to_yaml(opt))   # 输出配置文件的所有参数信息.
+    # print(OmegaConf.to_yaml(opt))   # 输出配置文件的所有参数信息.
     return opt
 
 
 def show_model_parameters(opt):
-    '''打印出 model.classification_loss.parameters(), 查看其具体有哪些参数.'''
+    '''(自定义)打印出 model.classification_loss.parameters(), 查看其具体有哪些参数.'''
     model = ff_model.FF_model(opt)
     if "cuda" in opt.device:
         model = model.cuda() 
@@ -34,7 +36,7 @@ def get_model_and_optimizer(opt):
     model = ff_model.FF_model(opt)
     if "cuda" in opt.device:
         model = model.cuda()
-    print(model, "\n")  # 输出 FF_model 的组件信息.
+    # print(model, "\n")  # 输出 FF_model 的组件信息.
 
     # Create optimizer with different hyper-parameters for the main model
     # and the downstream classification model.
@@ -181,7 +183,28 @@ def print_results(partition, iteration_time, scalar_outputs, epoch=None):
     )
     if scalar_outputs is not None:
         for key, value in scalar_outputs.items():
-            print(f"{key}: {value:.4f} \t", end="")
+            print(f"{key}: {value:.4f} \t", end="") # 先输出当前 epoch 的训练/测试结果.
+        
+        # 再把当前 epoch 的训练/测试结果上传到 wandb.
+        if partition == "train":
+            wandb.log({ "Loss": scalar_outputs["Loss"],
+                        "Peer Normalization": scalar_outputs["Peer Normalization"],
+                        "loss_layer_0": scalar_outputs["loss_layer_0"],
+                        "loss_layer_1": scalar_outputs["loss_layer_1"],
+                        "loss_layer_2": scalar_outputs["loss_layer_2"],
+                        "ff_acc_layer_0": scalar_outputs["ff_accuracy_layer_0"],
+                        "ff_acc_layer_1": scalar_outputs["ff_accuracy_layer_1"],
+                        "ff_acc_layer_2": scalar_outputs["ff_accuracy_layer_2"],
+                        "cls_loss": scalar_outputs["classification_loss"],
+                        "cls_acc": scalar_outputs["classification_accuracy"] })
+        elif partition == "val":
+            wandb.log({ "Val Loss": scalar_outputs["Loss"],
+                        "Val cls_loss": scalar_outputs["classification_loss"],
+                        "Val cls_acc": scalar_outputs["classification_accuracy"] })
+        elif partition == "test":
+            wandb.log({ "Test Loss": scalar_outputs["Loss"],
+                        "Test cls_loss": scalar_outputs["classification_loss"],
+                        "Test cls_acc": scalar_outputs["classification_accuracy"] })
     print()
 
 

@@ -85,6 +85,9 @@ class FF_model(torch.nn.Module):
         ff_loss = self.ff_loss(logits, labels.float())
 
         with torch.no_grad():
+            # 计算每层 ff_layer 的 accuracy 的方式:
+            # 对于 pos_sample, 若 logits > 0, 则代表分类正确; 对于 neg_sample, 若 logits < 0, 则代表分类正确.
+            # 最后计算 "分类正确" 的 sample 数目占整个 batch 的 sample 总数的比例, 即为 ff_accuracy.
             ff_accuracy = (
                 torch.sum((torch.sigmoid(logits) > 0.5) == labels)  # equivalent to `logits > 0`
                 / z.shape[0]
@@ -139,7 +142,7 @@ class FF_model(torch.nn.Module):
         self, inputs, labels, scalar_outputs=None,
     ):
         '''输入一个 batch 的 samples, 通过 ff_layers 后把 activity vector 送入线性分类器,
-        计算分类误差 和 分类精度, 最终返回更新后的 scalar_outputs.'''
+        计算 分类误差 和 分类精度, 最终返回更新后的 scalar_outputs.'''
         if scalar_outputs is None:
             scalar_outputs = {
                 "Loss": torch.zeros(1, device=self.opt.device),

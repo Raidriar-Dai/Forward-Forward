@@ -1,0 +1,7 @@
+setup:
+    project: Forward-Forward
+    entity: raidriar_dai
+    mode: online
+watch:
+    log: all
+    log_freq: 100
