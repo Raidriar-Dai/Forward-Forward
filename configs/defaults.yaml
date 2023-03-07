@@ -11,6 +11,7 @@
 #   peer_normalization: 0.03
 #   momentum: 0.9
 
+#   input_dim: 784
 #   hidden_dim: 1000
 #   num_layers: 3
 
@@ -47,5 +48,5 @@ defaults:
 seed: 42
 device: "cuda"
 
-# training:
-#   epochs: 5
+training:
+  epochs: 10

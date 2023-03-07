@@ -13,11 +13,12 @@ class FF_model(torch.nn.Module):
         super(FF_model, self).__init__()
 
         self.opt = opt
+        self.input_dim = opt.model.input_dim
         self.num_channels = [self.opt.model.hidden_dim] * self.opt.model.num_layers
         self.act_fn = ReLU_full_grad()
 
         # Initialize the model.
-        self.model = nn.ModuleList([nn.Linear(784, self.num_channels[0])])
+        self.model = nn.ModuleList([nn.Linear(self.input_dim, self.num_channels[0])])
         for i in range(1, len(self.num_channels)):
             self.model.append(nn.Linear(self.num_channels[i - 1], self.num_channels[i]))
 
@@ -123,13 +124,13 @@ class FF_model(torch.nn.Module):
                 peer_loss = self._calc_peer_normalization_loss(idx, z)
                 scalar_outputs["Peer Normalization"] += peer_loss
                 scalar_outputs["Loss"] += self.opt.model.peer_normalization * peer_loss
-
+ 
             ff_loss, ff_accuracy = self._calc_ff_loss(z, posneg_labels)
             scalar_outputs[f"loss_layer_{idx}"] = ff_loss
             scalar_outputs[f"ff_accuracy_layer_{idx}"] = ff_accuracy
             scalar_outputs["Loss"] += ff_loss
-            z = z.detach()  # 特别注意: 把 z 送入下一层 layer 的 forward 之前, 必须 detach 掉 z 在上一层 layer 中的计算图.
 
+            z = z.detach()  # 特别注意: 把 z 送入下一层 layer 的 forward 之前, 必须 detach 掉 z 在上一层 layer 中的计算图.
             z = self._layer_norm(z)
 
         scalar_outputs = self.forward_downstream_classification_model(
