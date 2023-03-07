@@ -38,8 +38,8 @@
 #       log_freq: 100
 
 defaults:
-  - input: defaults
-  - model: defaults
+  - input: mnist
+  - model: ${input}
   - training: defaults
   - hydra: defaults
   - wandb: defaults
@@ -49,4 +49,5 @@ seed: 42
 device: "cuda"
 
 training:
-  epochs: 10
+  epochs: 5
+

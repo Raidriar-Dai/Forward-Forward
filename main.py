@@ -74,10 +74,10 @@ def validate_or_test(opt, model, partition, epoch=None):
 def my_main(opt: DictConfig) -> None:
     opt = utils.parse_args(opt)
 
-    wandb_cfg = omegaconf.OmegaConf.to_container(
-        opt, resolve=True, throw_on_missing=True
-    )
-    wandb.init(entity=opt.wandb.setup.entity, project=opt.wandb.setup.project, config=wandb_cfg)
+    # wandb_cfg = omegaconf.OmegaConf.to_container(
+    #     opt, resolve=True, throw_on_missing=True
+    # )
+    # wandb.init(entity=opt.wandb.setup.entity, project=opt.wandb.setup.project, config=wandb_cfg)
 
     model, optimizer = utils.get_model_and_optimizer(opt)
     model = train(opt, model, optimizer)
@@ -86,7 +86,7 @@ def my_main(opt: DictConfig) -> None:
     if opt.training.final_test:
         validate_or_test(opt, model, "test")
 
-    wandb.finish()
+    # wandb.finish()
 
 
 @hydra.main(version_base=None, config_path="configs/", config_name="defaults")

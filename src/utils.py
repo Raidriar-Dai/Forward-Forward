@@ -10,7 +10,7 @@ import wandb
 from hydra.utils import get_original_cwd
 from omegaconf import OmegaConf
 
-from src import ff_mnist, ff_model
+from src import ff_dataset, ff_model
 
 
 def parse_args(opt):
@@ -71,8 +71,8 @@ def get_model_and_optimizer(opt):
 
 
 def get_data(opt, partition):
-    '''由 FF_MNIST dataset 封装返回一个 dataloader'''
-    dataset = ff_mnist.FF_MNIST(opt, partition)
+    '''由 FF_Dataset 封装返回一个 dataloader'''
+    dataset = ff_dataset.FF_Dataset(opt, partition)
 
     # Improve reproducibility in dataloader.
     g = torch.Generator()
@@ -96,40 +96,99 @@ def seed_worker(worker_id):
     random.seed(worker_seed)
 
 
+# def get_MNIST_partition(opt, partition):
+#     '''获取 dataset 的主要成分(用于 dataset 的构造)'''
+#     # 这里的 dataset 只被 transform 成为 Tensor, 没有经过 normalization 或 flatten. 
+#     if partition in ["train", "val", "train_val"]:
+#         mnist = torchvision.datasets.MNIST(
+#             os.path.join(get_original_cwd(), opt.input.path),
+#             train=True,
+#             download=True,
+#             transform=torchvision.transforms.ToTensor(),
+#         )
+#     elif partition in ["test"]:
+#         mnist = torchvision.datasets.MNIST(
+#             os.path.join(get_original_cwd(), opt.input.path),
+#             train=False,
+#             download=True,
+#             transform=torchvision.transforms.ToTensor(),
+#         )
+#     else:
+#         raise NotImplementedError
+
+#     # 分 train 与 val 两种情况, 进一步分割 training set.
+#     if partition == "train":
+#         mnist = torch.utils.data.Subset(mnist, range(50000))
+#     elif partition == "val":
+#         mnist = torchvision.datasets.MNIST(
+#             os.path.join(get_original_cwd(), opt.input.path),
+#             train=True,
+#             download=True,
+#             transform=torchvision.transforms.ToTensor(),
+#         )   # 这里为什么要再写一遍完全相同的数据集? 这样会打乱得到的 mnist 中图像的顺序吗?
+#         # 可能的原因: 有些情况下, 验证集 和 训练集, 所需要的 transform 操作是不一样的.
+#         mnist = torch.utils.data.Subset(mnist, range(50000, 60000))
+
+#     return mnist
+
+
 def get_MNIST_partition(opt, partition):
-    '''获取 dataset 的主要成分(用于 dataset 的构造)'''
-    # 这里的 dataset 只被 transform 成为 Tensor, 没有经过 normalization 或 flatten. 
-    if partition in ["train", "val", "train_val"]:
-        mnist = torchvision.datasets.MNIST(
-            os.path.join(get_original_cwd(), opt.input.path),
-            train=True,
-            download=True,
-            transform=torchvision.transforms.ToTensor(),
-        )
-    elif partition in ["test"]:
+    '''用 random_split 来获取 MNIST 的 training set 与 validation set.''' 
+    if partition in ["test"]:
         mnist = torchvision.datasets.MNIST(
             os.path.join(get_original_cwd(), opt.input.path),
             train=False,
             download=True,
             transform=torchvision.transforms.ToTensor(),
         )
-    else:
-        raise NotImplementedError
-
-    # 分 train 与 val 两种情况, 进一步分割 training set.
-    if partition == "train":
-        mnist = torch.utils.data.Subset(mnist, range(50000))
-    elif partition == "val":
+    elif partition in ["train", "val", "train_val"]:
         mnist = torchvision.datasets.MNIST(
             os.path.join(get_original_cwd(), opt.input.path),
             train=True,
             download=True,
             transform=torchvision.transforms.ToTensor(),
-        )   # 这里为什么要再写一遍完全相同的数据集? 这样会打乱得到的 mnist 中图像的顺序吗?
-        mnist = torch.utils.data.Subset(mnist, range(50000, 60000))
+        )
+        mnist_train, mnist_val = torch.utils.data.random_split(
+            mnist, [50000, 10000]
+            )
+        if partition == "train":
+            mnist = mnist_train
+        elif partition == "val":
+            mnist = mnist_val
+    else:
+        raise NotImplementedError
 
     return mnist
 
+
+def get_CIFAR10_partition(opt, partition):
+    '''获取 dataset 的主要成分(用于 dataset 的构造)'''
+    if partition in ["test"]:
+        cifar10 = torchvision.datasets.CIFAR10(
+            os.path.join(get_original_cwd(), opt.input.path),
+            train=False,
+            download=True,
+            transform=torchvision.transforms.ToTensor(),
+        )
+    elif partition in ["train", "val", "train_val"]:
+        cifar10 = torchvision.datasets.CIFAR10(
+            os.path.join(get_original_cwd(), opt.input.path),
+            train=True,
+            download=True,
+            transform=torchvision.transforms.ToTensor(),
+        )
+        cifar10_train, cifar10_val = torch.utils.data.random_split(
+            cifar10, [1 - opt.input.val_ratio, opt.input.val_ratio]
+            )
+        if partition == "train":
+            cifar10 = cifar10_train
+        elif partition == "val":
+            cifar10 = cifar10_val
+    else:
+        raise NotImplementedError
+
+    return cifar10
+    
 
 def dict_to_cuda(dict):
     '''把 dict 中存储的 value 放到 cuda 上'''
@@ -186,25 +245,25 @@ def print_results(partition, iteration_time, scalar_outputs, epoch=None):
             print(f"{key}: {value:.4f} \t", end="") # 先输出当前 epoch 的训练/测试结果.
         
         # 再把当前 epoch 的训练/测试结果上传到 wandb.
-        if partition == "train":
-            wandb.log({ "Loss": scalar_outputs["Loss"],
-                        "Peer Normalization": scalar_outputs["Peer Normalization"],
-                        "loss_layer_0": scalar_outputs["loss_layer_0"],
-                        "loss_layer_1": scalar_outputs["loss_layer_1"],
-                        "loss_layer_2": scalar_outputs["loss_layer_2"],
-                        "ff_acc_layer_0": scalar_outputs["ff_accuracy_layer_0"],
-                        "ff_acc_layer_1": scalar_outputs["ff_accuracy_layer_1"],
-                        "ff_acc_layer_2": scalar_outputs["ff_accuracy_layer_2"],
-                        "cls_loss": scalar_outputs["classification_loss"],
-                        "cls_acc": scalar_outputs["classification_accuracy"] })
-        elif partition == "val":
-            wandb.log({ "Val Loss": scalar_outputs["Loss"],
-                        "Val cls_loss": scalar_outputs["classification_loss"],
-                        "Val cls_acc": scalar_outputs["classification_accuracy"] })
-        elif partition == "test":
-            wandb.log({ "Test Loss": scalar_outputs["Loss"],
-                        "Test cls_loss": scalar_outputs["classification_loss"],
-                        "Test cls_acc": scalar_outputs["classification_accuracy"] })
+        # if partition == "train":
+        #     wandb.log({ "Loss": scalar_outputs["Loss"],
+        #                 "Peer Normalization": scalar_outputs["Peer Normalization"],
+        #                 "loss_layer_0": scalar_outputs["loss_layer_0"],
+        #                 "loss_layer_1": scalar_outputs["loss_layer_1"],
+        #                 "loss_layer_2": scalar_outputs["loss_layer_2"],
+        #                 "ff_acc_layer_0": scalar_outputs["ff_accuracy_layer_0"],
+        #                 "ff_acc_layer_1": scalar_outputs["ff_accuracy_layer_1"],
+        #                 "ff_acc_layer_2": scalar_outputs["ff_accuracy_layer_2"],
+        #                 "cls_loss": scalar_outputs["classification_loss"],
+        #                 "cls_acc": scalar_outputs["classification_accuracy"] })
+        # elif partition == "val":
+        #     wandb.log({ "Val Loss": scalar_outputs["Loss"],
+        #                 "Val cls_loss": scalar_outputs["classification_loss"],
+        #                 "Val cls_acc": scalar_outputs["classification_accuracy"] })
+        # elif partition == "test":
+        #     wandb.log({ "Test Loss": scalar_outputs["Loss"],
+        #                 "Test cls_loss": scalar_outputs["classification_loss"],
+        #                 "Test cls_acc": scalar_outputs["classification_accuracy"] })
     print()
 
 

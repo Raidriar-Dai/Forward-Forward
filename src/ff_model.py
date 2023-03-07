@@ -34,8 +34,8 @@ class FF_model(torch.nn.Module):
         # Initialize downstream classification loss.
         # 这里应该是实现原论文中 "one-pass" softmax 的 test 方法.
         channels_for_classification_loss = sum(
-            self.num_channels[-i] for i in range(self.opt.model.num_layers - 1)
-        )   # 纠错: 是否该改成 self.num_channels[-i-1] ?
+            self.num_channels[-i-1] for i in range(self.opt.model.num_layers - 1)
+        )   # 纠错: 是否该改成 self.num_channels[-i-1]? 已修改.
         # 下游的线性分类器 并不被包括在 self.model 中, 而是单独列为 self.linear_classifier.
         self.linear_classifier = nn.Sequential(
             nn.Linear(channels_for_classification_loss, 10, bias=False)
