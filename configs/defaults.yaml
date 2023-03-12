@@ -15,6 +15,9 @@
 #   hidden_dim: 1000
 #   num_layers: 3
 
+#   goodness_type: sum
+#   theta: 2.0
+
 # training:
 #   epochs: 100
 
@@ -38,9 +41,9 @@
 #       log_freq: 100
 
 defaults:
-  - input: mnist
+  - input: cifar10
   - model: ${input}
-  - training: defaults
+  - training: ${input}
   - hydra: defaults
   - wandb: defaults
   - _self_
@@ -48,6 +51,15 @@ defaults:
 seed: 42
 device: "cuda"
 
+input:
+  batch_size: 100
+
+model:
+  goodness_type: mean
+  theta: 2.0  # 当 goodness_type 为 sum 时, 不用管 theta.
+
 training:
-  epochs: 5
+  epochs: 200
+  learning_rate: 0.002 # lr 与 batch_size 一起调参.
+  final_test: True
 

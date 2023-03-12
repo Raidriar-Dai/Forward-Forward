@@ -3,6 +3,8 @@ import math
 import torch
 import torch.nn as nn
 
+import wandb
+
 from src import utils
 
 
@@ -23,7 +25,7 @@ class FF_model(torch.nn.Module):
             self.model.append(nn.Linear(self.num_channels[i - 1], self.num_channels[i]))
 
         # Initialize forward-forward loss.
-        self.ff_loss = nn.BCEWithLogitsLoss()
+        self.ff_loss = nn.BCEWithLogitsLoss()    # modif 1: reduction='sum'
 
         # Initialize peer normalization loss.
         self.running_means = [
@@ -40,7 +42,7 @@ class FF_model(torch.nn.Module):
         self.linear_classifier = nn.Sequential(
             nn.Linear(channels_for_classification_loss, 10, bias=False)
         )
-        self.classification_loss = nn.CrossEntropyLoss()
+        self.classification_loss = nn.CrossEntropyLoss() # modif 2: reduction='sum'
 
         # Initialize weights.
         self._init_weights()
@@ -79,10 +81,18 @@ class FF_model(torch.nn.Module):
         return torch.mean(peer_loss)
 
     def _calc_ff_loss(self, z, labels):
-        sum_of_squares = torch.sum(z ** 2, dim=-1)
+        '''用 squared_sum 与 squared_mean 两种不同方式生成 logits.'''
+        if self.opt.model.goodness_type == "sum":
+            sum_of_squares = torch.sum(z ** 2, dim=-1)
+            logits = sum_of_squares - z.shape[1]    # 这里的 z.shape[1] 即为原论文 2.0 节所写公式中的 theta.
 
-        # 这里的 z.shape[1] 即为原论文 2.0 节所写公式中的 theta.
-        logits = sum_of_squares - z.shape[1]
+        elif self.opt.model.goodness_type == "mean":
+            mean_of_squares = torch.mean(z ** 2, dim=-1)
+            logits = mean_of_squares - self.opt.model.theta
+
+        else:
+            raise NotImplementedError
+
         ff_loss = self.ff_loss(logits, labels.float())
 
         with torch.no_grad():

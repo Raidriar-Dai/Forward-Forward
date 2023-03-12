@@ -19,7 +19,7 @@ def parse_args(opt):
     torch.manual_seed(opt.seed)
     random.seed(opt.seed)
 
-    # print(OmegaConf.to_yaml(opt))   # 输出配置文件的所有参数信息.
+    print(OmegaConf.to_yaml(opt))   # 输出配置文件的所有参数信息.
     return opt
 
 
@@ -149,7 +149,7 @@ def get_MNIST_partition(opt, partition):
             transform=torchvision.transforms.ToTensor(),
         )
         mnist_train, mnist_val = torch.utils.data.random_split(
-            mnist, [50000, 10000]
+            mnist, [len(mnist) - opt.input.val_size, opt.input.val_size]
             )
         if partition == "train":
             mnist = mnist_train
@@ -178,7 +178,7 @@ def get_CIFAR10_partition(opt, partition):
             transform=torchvision.transforms.ToTensor(),
         )
         cifar10_train, cifar10_val = torch.utils.data.random_split(
-            cifar10, [1 - opt.input.val_ratio, opt.input.val_ratio]
+            cifar10, [len(cifar10) - opt.input.val_size, opt.input.val_size]
             )
         if partition == "train":
             cifar10 = cifar10_train
@@ -243,27 +243,27 @@ def print_results(partition, iteration_time, scalar_outputs, epoch=None):
     if scalar_outputs is not None:
         for key, value in scalar_outputs.items():
             print(f"{key}: {value:.4f} \t", end="") # 先输出当前 epoch 的训练/测试结果.
-        
+
         # 再把当前 epoch 的训练/测试结果上传到 wandb.
-        # if partition == "train":
-        #     wandb.log({ "Loss": scalar_outputs["Loss"],
-        #                 "Peer Normalization": scalar_outputs["Peer Normalization"],
-        #                 "loss_layer_0": scalar_outputs["loss_layer_0"],
-        #                 "loss_layer_1": scalar_outputs["loss_layer_1"],
-        #                 "loss_layer_2": scalar_outputs["loss_layer_2"],
-        #                 "ff_acc_layer_0": scalar_outputs["ff_accuracy_layer_0"],
-        #                 "ff_acc_layer_1": scalar_outputs["ff_accuracy_layer_1"],
-        #                 "ff_acc_layer_2": scalar_outputs["ff_accuracy_layer_2"],
-        #                 "cls_loss": scalar_outputs["classification_loss"],
-        #                 "cls_acc": scalar_outputs["classification_accuracy"] })
-        # elif partition == "val":
-        #     wandb.log({ "Val Loss": scalar_outputs["Loss"],
-        #                 "Val cls_loss": scalar_outputs["classification_loss"],
-        #                 "Val cls_acc": scalar_outputs["classification_accuracy"] })
-        # elif partition == "test":
-        #     wandb.log({ "Test Loss": scalar_outputs["Loss"],
-        #                 "Test cls_loss": scalar_outputs["classification_loss"],
-        #                 "Test cls_acc": scalar_outputs["classification_accuracy"] })
+        if partition == "train":
+            wandb.log({ "Loss": scalar_outputs["Loss"],
+                        "Peer Normalization": scalar_outputs["Peer Normalization"],
+                        "loss_layer_0": scalar_outputs["loss_layer_0"],
+                        "loss_layer_1": scalar_outputs["loss_layer_1"],
+                        "loss_layer_2": scalar_outputs["loss_layer_2"],
+                        "ff_acc_layer_0": scalar_outputs["ff_accuracy_layer_0"],
+                        "ff_acc_layer_1": scalar_outputs["ff_accuracy_layer_1"],
+                        "ff_acc_layer_2": scalar_outputs["ff_accuracy_layer_2"],
+                        "cls_loss": scalar_outputs["classification_loss"],
+                        "cls_acc": scalar_outputs["classification_accuracy"] })
+        elif partition == "val":
+            wandb.log({ "Val Loss": scalar_outputs["Loss"],
+                        "Val cls_loss": scalar_outputs["classification_loss"],
+                        "Val cls_acc": scalar_outputs["classification_accuracy"] })
+        elif partition == "test":
+            wandb.log({ "Test Loss": scalar_outputs["Loss"],
+                        "Test cls_loss": scalar_outputs["classification_loss"],
+                        "Test cls_acc": scalar_outputs["classification_accuracy"] })
     print()
 
 
