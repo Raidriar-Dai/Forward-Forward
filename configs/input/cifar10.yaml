@@ -2,4 +2,4 @@ path: datasets
 batch_size: 100
 dataset: cifar10
 num_classes: 10
-val_ratio: 0.1
+val_size: 5000

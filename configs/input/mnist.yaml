@@ -2,4 +2,4 @@ path: datasets
 batch_size: 100
 dataset: mnist
 num_classes: 10
-val_ratio: 0.2
+val_size: 10000
