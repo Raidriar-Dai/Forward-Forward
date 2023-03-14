@@ -36,7 +36,7 @@ def train(opt, model, optimizer):
                 train_results, scalar_outputs, num_steps_per_epoch
             )
 
-        utils.print_results("train", time.time() - start_time, train_results, epoch)
+        utils.print_results(opt, "train", time.time() - start_time, train_results, epoch)
         start_time = time.time()
 
         # Validate.
@@ -59,14 +59,20 @@ def validate_or_test(opt, model, partition, epoch=None):
         for inputs, labels in data_loader:
             inputs, labels = utils.preprocess_inputs(opt, inputs, labels)
 
-            scalar_outputs = model.forward_downstream_classification_model(
-                inputs, labels
-            )
+            if opt.training.test_mode == "one_pass_softmax":
+                scalar_outputs = model.forward_downstream_classification_model(
+                    inputs, labels
+                )
+            elif opt.training.test_mode == "compute_each_label":
+                scalar_outputs = model.forward_accumulate_label_goodness(
+                    inputs, labels
+                )
+
             test_results = utils.log_results(
                 test_results, scalar_outputs, num_steps_per_epoch
             )
 
-    utils.print_results(partition, time.time() - test_time, test_results, epoch=epoch)
+    utils.print_results(opt, partition, time.time() - test_time, test_results, epoch=epoch)
     model.train()   # test 结束后把 model 状态恢复到默认的 train().
 
 
@@ -74,10 +80,10 @@ def validate_or_test(opt, model, partition, epoch=None):
 def my_main(opt: DictConfig) -> None:
     opt = utils.parse_args(opt)
 
-    wandb_cfg = omegaconf.OmegaConf.to_container(
-        opt, resolve=True, throw_on_missing=True
-    )
-    wandb.init(entity=opt.wandb.setup.entity, project=opt.wandb.setup.project, config=wandb_cfg)
+    # wandb_cfg = omegaconf.OmegaConf.to_container(
+    #     opt, resolve=True, throw_on_missing=True
+    # )
+    # wandb.init(entity=opt.wandb.setup.entity, project=opt.wandb.setup.project, config=wandb_cfg)
 
     model, optimizer = utils.get_model_and_optimizer(opt)
     model = train(opt, model, optimizer)
@@ -86,7 +92,7 @@ def my_main(opt: DictConfig) -> None:
     if opt.training.final_test:
         validate_or_test(opt, model, "test")
 
-    wandb.finish()
+    # wandb.finish()
 
 
 @hydra.main(version_base=None, config_path="configs/", config_name="defaults")

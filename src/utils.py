@@ -38,35 +38,50 @@ def get_model_and_optimizer(opt):
         model = model.cuda()
     # print(model, "\n")  # 输出 FF_model 的组件信息.
 
-    # Create optimizer with different hyper-parameters for the main model
-    # and the downstream classification model.
-    main_model_params = [
-        p
-        for p in model.parameters()
-        if all(p is not x for x in model.classification_loss.parameters())
-        # 疑问: 经试验, model.classification_loss.parameters() 是一个空的 generator?
-    ]
-    # Torch.optim 的 "per-parameter options" 初始化方法: 用多个字典定义多个独立的 parameter group.
-    # 纠错: main model 中的参数是否应该是 model.model.parameters(),
-    # 而 downstream classification model 中的参数是否应该是 model.linear_classifier.parameters()?
-    optimizer = torch.optim.SGD(
-        [
-            {
-                # main model 中需要更新的参数.
-                "params": main_model_params,
-                "lr": opt.training.learning_rate,
-                "weight_decay": opt.training.weight_decay,
-                "momentum": opt.training.momentum,
-            },
-            {
-                # downstream classification model 中需要更新的参数.
-                "params": model.classification_loss.parameters(),
-                "lr": opt.training.downstream_learning_rate,
-                "weight_decay": opt.training.downstream_weight_decay,
-                "momentum": opt.training.momentum,
-            },
+    # "one-pass softmax" 的训练参数:
+    if opt.training.test_mode == "one_pass_softmax":
+        main_model_params = [
+            p
+            for p in model.parameters()
+            if all(p is not x for x in model.linear_classifier.parameters())
+            # 疑问: 经试验, model.classification_loss.parameters() 是一个空的 generator?
         ]
-    )
+        # Torch.optim 的 "per-parameter options" 初始化方法: 用多个字典定义多个独立的 parameter group.
+        # 纠错: main model 中的参数是否应该是 model.model.parameters(),
+        # 而 downstream classification model 中的参数是否应该是 model.linear_classifier.parameters()?
+        optimizer = torch.optim.SGD(
+            [
+                {
+                    # main model 中需要更新的参数.
+                    "params": main_model_params,
+                    "lr": opt.training.learning_rate,
+                    "weight_decay": opt.training.weight_decay,
+                    "momentum": opt.training.momentum,
+                },
+                {
+                    # downstream classification model 中需要更新的参数.
+                    "params": model.linear_classifier.parameters(),
+                    "lr": opt.training.downstream_learning_rate,
+                    "weight_decay": opt.training.downstream_weight_decay,
+                    "momentum": opt.training.momentum,
+                },
+            ]
+        )
+
+    # "compute goodness for each label" 的训练参数:
+    elif opt.training.test_mode == "compute_each_label":
+        optimizer = torch.optim.SGD(
+            [
+                {
+                    # 只有 ff_layer 含有需要更新的参数, 不再有 cls_layer.
+                    "params": model.parameters(),
+                    "lr": opt.training.learning_rate,
+                    "weight_decay": opt.training.weight_decay,
+                    "momentum": opt.training.momentum,
+                }
+            ]
+        )
+
     return model, optimizer
 
 
@@ -188,7 +203,7 @@ def get_CIFAR10_partition(opt, partition):
         raise NotImplementedError
 
     return cifar10
-    
+
 
 def dict_to_cuda(dict):
     '''把 dict 中存储的 value 放到 cuda 上'''
@@ -213,14 +228,39 @@ def get_linear_cooldown_lr(opt, epoch, lr):
         return lr
 
 
+def get_linear_cooldown_withLowerBound_lr(opt, epoch, lr):
+    '''当 epoch 过半之后, lr 以线性速率减小, 直至达到 0.4e-4 时停止, 不再减小.'''
+    if epoch > (opt.training.epochs // 2):
+        return max(lr * 2 * (1 + opt.training.epochs - epoch) / opt.training.epochs, 
+                   0.4e-4)
+    else:
+        return lr
+
+
 def update_learning_rate(optimizer, opt, epoch):
     '''在每个新的 epoch 都要 cooldown 当前 optimizer 的 lr.'''
-    optimizer.param_groups[0]["lr"] = get_linear_cooldown_lr(
-        opt, epoch, opt.training.learning_rate
-    )
-    optimizer.param_groups[1]["lr"] = get_linear_cooldown_lr(
-        opt, epoch, opt.training.downstream_learning_rate
-    )
+    if opt.training.lr_schedule == "default":
+        lr_schedule_func = [get_linear_cooldown_lr] * 2
+    elif opt.training.lr_schedule == "lower_bound":
+        lr_schedule_func = [get_linear_cooldown_withLowerBound_lr] * 2
+    elif opt.training.lr_schedule == "mixed":
+        lr_schedule_func = [get_linear_cooldown_lr, get_linear_cooldown_withLowerBound_lr]
+    else:
+        raise NotImplementedError
+
+    if opt.training.test_mode == "one_pass_softmax":
+        optimizer.param_groups[0]["lr"] = lr_schedule_func[0](
+            opt, epoch, opt.training.learning_rate
+        )
+        optimizer.param_groups[1]["lr"] = lr_schedule_func[1](
+            opt, epoch, opt.training.downstream_learning_rate
+        )
+
+    elif opt.training.test_mode == "compute_each_label":
+        optimizer.param_groups[0]["lr"] = lr_schedule_func[0](
+            opt, epoch, opt.training.learning_rate
+        )
+
     return optimizer
 
 
@@ -231,7 +271,7 @@ def get_accuracy(opt, output, target):
         return (prediction == target).sum() / opt.input.batch_size
 
 
-def print_results(partition, iteration_time, scalar_outputs, epoch=None):
+def print_results(opt, partition, iteration_time, scalar_outputs, epoch=None):
     if epoch is not None:
         print(f"Epoch {epoch} \t", end="")
 
@@ -245,25 +285,45 @@ def print_results(partition, iteration_time, scalar_outputs, epoch=None):
             print(f"{key}: {value:.4f} \t", end="") # 先输出当前 epoch 的训练/测试结果.
 
         # 再把当前 epoch 的训练/测试结果上传到 wandb.
-        if partition == "train":
-            wandb.log({ "Loss": scalar_outputs["Loss"],
-                        "Peer Normalization": scalar_outputs["Peer Normalization"],
-                        "loss_layer_0": scalar_outputs["loss_layer_0"],
-                        "loss_layer_1": scalar_outputs["loss_layer_1"],
-                        "loss_layer_2": scalar_outputs["loss_layer_2"],
-                        "ff_acc_layer_0": scalar_outputs["ff_accuracy_layer_0"],
-                        "ff_acc_layer_1": scalar_outputs["ff_accuracy_layer_1"],
-                        "ff_acc_layer_2": scalar_outputs["ff_accuracy_layer_2"],
-                        "cls_loss": scalar_outputs["classification_loss"],
-                        "cls_acc": scalar_outputs["classification_accuracy"] })
-        elif partition == "val":
-            wandb.log({ "Val Loss": scalar_outputs["Loss"],
-                        "Val cls_loss": scalar_outputs["classification_loss"],
-                        "Val cls_acc": scalar_outputs["classification_accuracy"] })
-        elif partition == "test":
-            wandb.log({ "Test Loss": scalar_outputs["Loss"],
-                        "Test cls_loss": scalar_outputs["classification_loss"],
-                        "Test cls_acc": scalar_outputs["classification_accuracy"] })
+        # "one_pass_softmax" 测试模式下, 存在 cls_loss 这个 metric.
+        # if opt.training.test_mode == "one_pass_softmax":
+        #     if partition == "train":
+        #         wandb.log({ "Loss": scalar_outputs["Loss"],
+        #                     "Peer Normalization": scalar_outputs["Peer Normalization"],
+        #                     "loss_layer_0": scalar_outputs["loss_layer_0"],
+        #                     "loss_layer_1": scalar_outputs["loss_layer_1"],
+        #                     "loss_layer_2": scalar_outputs["loss_layer_2"],
+        #                     "ff_acc_layer_0": scalar_outputs["ff_accuracy_layer_0"],
+        #                     "ff_acc_layer_1": scalar_outputs["ff_accuracy_layer_1"],
+        #                     "ff_acc_layer_2": scalar_outputs["ff_accuracy_layer_2"],
+        #                     "cls_loss": scalar_outputs["classification_loss"],
+        #                     "cls_acc": scalar_outputs["classification_accuracy"] })
+        #     elif partition == "val":
+        #         wandb.log({ "Val Loss": scalar_outputs["Loss"],
+        #                     "Val cls_loss": scalar_outputs["classification_loss"],
+        #                     "Val cls_acc": scalar_outputs["classification_accuracy"] })
+        #     elif partition == "test":
+        #         wandb.log({ "Test Loss": scalar_outputs["Loss"],
+        #                     "Test cls_loss": scalar_outputs["classification_loss"],
+        #                     "Test cls_acc": scalar_outputs["classification_accuracy"] })
+
+        # # "compute_each_label" 测试模式下, 只存在 cls_acc 这个 metric.
+        # elif opt.training.test_mode == "compute_each_label":
+        #     if partition == "train":
+        #         wandb.log({ "Loss": scalar_outputs["Loss"],
+        #                     "Peer Normalization": scalar_outputs["Peer Normalization"],
+        #                     "loss_layer_0": scalar_outputs["loss_layer_0"],
+        #                     "loss_layer_1": scalar_outputs["loss_layer_1"],
+        #                     "loss_layer_2": scalar_outputs["loss_layer_2"],
+        #                     "ff_acc_layer_0": scalar_outputs["ff_accuracy_layer_0"],
+        #                     "ff_acc_layer_1": scalar_outputs["ff_accuracy_layer_1"],
+        #                     "ff_acc_layer_2": scalar_outputs["ff_accuracy_layer_2"],
+        #                     "cls_acc": scalar_outputs["classification_accuracy"] })
+        #     elif partition == "val":
+        #         wandb.log({ "Val cls_acc": scalar_outputs["classification_accuracy"] })
+        #     elif partition == "test":
+        #         wandb.log({ "Test cls_acc": scalar_outputs["classification_accuracy"] })
+
     print()
 
 
@@ -274,3 +334,15 @@ def log_results(result_dict, scalar_outputs, num_steps):
         else:
             result_dict[key] += value.item() / num_steps
     return result_dict
+
+
+def overlay_label_on_z(num_classes, z, label):
+    '''z 为 二维 tensor, label 为 0-9 之间的数字;
+    把 z 的每行前 10 列元素都替换成 label 所指示的那个标签.'''
+    z_labeled = z.clone()
+
+    index = torch.arange(num_classes).cuda()
+    z_labeled.index_fill_(1, index, 0)
+    z_labeled[:, label] = 1
+
+    return z_labeled

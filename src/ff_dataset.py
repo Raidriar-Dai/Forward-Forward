@@ -6,7 +6,7 @@ from src import utils
 # 最后需要把类名改为: FF_Dataset
 class FF_Dataset(torch.utils.data.Dataset):
     '''在 torchvision 提供的数据集基础上, 新增了获取 pos/neg/neutral sample 的方法.'''
-    def __init__(self, opt, partition, num_classes=10):
+    def __init__(self, opt, partition):
         dataset = {'mnist': utils.get_MNIST_partition, 'cifar10': utils.get_CIFAR10_partition}
         self.opt = opt
         self.dataset = dataset[self.opt.input.dataset](opt, partition)
