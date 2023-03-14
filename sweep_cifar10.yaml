@@ -1,6 +1,6 @@
 program: main.py
 method: grid
-name: cifar10 - squared_mean, reduction='sum' except for cls_loss(with test, epochs=300/400/500, batch_size=100, lr=0.002, theta=2)
+name: cifar10 - kaiming init + low lr(1e-4 lr, 100/200 epochs, peer_norm=0/0.03)
 metric:
     goal: maximize
     name: Test cls_acc
@@ -10,10 +10,13 @@ parameters:
   #   values: [100, 250, 500]
   # training.learning_rate:
   #   values: [0.002, 0.003, 0.004, 0.005]
-  training.epochs:
-    values: [300, 400, 500]
   # model.theta:
   #   values: [2.0, 5.0, 10.0]
+  training.epochs:
+    values: [100, 200]
+  model.peer_normalization:
+    values: [0.0, 0.03]
+
 
 command:
   - ${env}

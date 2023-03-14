@@ -33,39 +33,50 @@ class FF_model(torch.nn.Module):
             for i in range(self.opt.model.num_layers)
         ]
 
-        # Initialize downstream classification loss.
-        # 这里应该是实现原论文中 "one-pass" softmax 的 test 方法.
-        channels_for_classification_loss = sum(
-            self.num_channels[-i-1] for i in range(self.opt.model.num_layers - 1)
-        )   # 纠错: 是否该改成 self.num_channels[-i-1]? 已修改.
-        # 下游的线性分类器 并不被包括在 self.model 中, 而是单独列为 self.linear_classifier.
-        self.linear_classifier = nn.Sequential(
-            nn.Linear(channels_for_classification_loss, 10, bias=False)
-        )
-        self.classification_loss = nn.CrossEntropyLoss() # modif 2: reduction='sum'
+
+        if self.opt.training.test_mode == "one_pass_softmax":
+            # Initialize downstream classification loss.
+            # 这里应该是实现原论文中 "one-pass softmax" 的 test 方法.
+            channels_for_classification_loss = sum(
+                self.num_channels[-i-1] for i in range(self.opt.model.num_layers - 1)
+            )   # 纠错: 是否该改成 self.num_channels[-i-1]? 已修改.
+            # 下游的线性分类器 并不被包括在 self.model 中, 而是单独列为 self.linear_classifier.
+            self.linear_classifier = nn.Sequential(
+                nn.Linear(channels_for_classification_loss, 10, bias=False)
+            )
+            self.classification_loss = nn.CrossEntropyLoss() # modif 2: reduction='sum'
 
         # Initialize weights.
         self._init_weights()
 
     def _init_weights(self):
-        # 纠错: 是否该改为 model.children() ?
+        # 纠错: 是否该改为 model.children()? 不过对于当前模型, 实际不影响.
         for m in self.model.modules():
             if isinstance(m, nn.Linear):
-                # 用了正态分布来初始化 weight_matrix, 而没有用 nn.Linear 默认的均匀分布.
-                # weight_matrix 的形状为: (out_features,in_features), 这里的 std 用的是 out_features 来初始化.
-                torch.nn.init.normal_(
-                    m.weight, mean=0, std=1 / math.sqrt(m.weight.shape[0])
-                )
-                torch.nn.init.zeros_(m.bias)
+                # 用了正态分布来初始化 weight_matrix (即最简单的一种 Xavier 初始化), 而没有用 nn.Linear 默认的均匀分布.
+                # 纠错: weight_matrix 的形状为: (out_features,in_features), 这里的 std 用的是 out_features 来初始化, 
+                # 但正常应该是用 in_features 来初始化吧? (不过对于 cifar10, out_features = in_features, 实际不影响)
+                # nn.init.normal_(
+                #     m.weight, mean=0, std=1 / math.sqrt(m.weight.shape[1])
+                # )
+                nn.init.kaiming_normal_(
+                    m.weight, mode='fan_in', nonlinearity='relu'
+                )    # modif 4: 使用 He initialization 减少 dead relu
+                nn.init.zeros_(m.bias)
 
-        for m in self.linear_classifier.modules():
-            if isinstance(m, nn.Linear):
-                nn.init.zeros_(m.weight)
+        if self.opt.training.test_mode == "one_pass_softmax":
+            for m in self.linear_classifier.modules():
+                if isinstance(m, nn.Linear):
+                    nn.init.zeros_(m.weight)
+                    # nn.init.normal_(
+                    #     m.weight, mean=0, std=1 / math.sqrt(m.weight.shape[1])
+                    # )    # modif 5: 把 linear_classifier 的 init 方式改成 normal/uniform.
 
     def _layer_norm(self, z, eps=1e-8):
         # dim=-1 指最后一个 dim, 应该总归指一个 sample 中的多个分量所在的维度.
-        # 纠错: 为什么这里是 mean 而不是 sum ?
-        return z / (torch.sqrt(torch.mean(z ** 2, dim=-1, keepdim=True)) + eps)
+        # 纠错: 为什么这里是 mean 而不是 sum?
+        # 可能的原因是: 使得归一化后的 sum_of_squares 等于 z.shape[1], 而非简单地归一化为 1.
+        return z / (torch.sqrt(torch.mean(z ** 2, dim=-1, keepdim=True)) + eps) # modif 3: torch.mean -> torch.sum
 
     def _calc_peer_normalization_loss(self, idx, z):
         # Only calculate mean activity over positive samples.
@@ -106,7 +117,8 @@ class FF_model(torch.nn.Module):
         return ff_loss, ff_accuracy
 
     def forward(self, inputs, labels):
-        '''输入一个 batch 的 samples, 经过3层线性层后, 再经过线性分类器, 最后返回输出 dict.'''
+        '''输入一个 batch 的 samples, 经过3层 ff_layer, 再经过线性分类器, 
+        或者直接通过 "compute goodness for each label" 来分类, 最后返回输出 dict.'''
         scalar_outputs = {
             "Loss": torch.zeros(1, device=self.opt.device),
             "Peer Normalization": torch.zeros(1, device=self.opt.device),
@@ -143,14 +155,21 @@ class FF_model(torch.nn.Module):
             z = z.detach()  # 特别注意: 把 z 送入下一层 layer 的 forward 之前, 必须 detach 掉 z 在上一层 layer 中的计算图.
             z = self._layer_norm(z)
 
-        scalar_outputs = self.forward_downstream_classification_model(
-            inputs, labels, scalar_outputs=scalar_outputs
-        )
+        if self.opt.training.test_mode == "one_pass_softmax":
+            scalar_outputs = self.forward_downstream_classification_model(
+                inputs, labels, scalar_outputs=scalar_outputs
+            )
+        elif self.opt.training.test_mode == "compute_each_label":
+            scalar_outputs = self.forward_accumulate_label_goodness(
+                inputs, labels, scalar_outputs=scalar_outputs
+            )
+        else:
+            raise NotImplementedError
 
         return scalar_outputs
 
     def forward_downstream_classification_model(
-        self, inputs, labels, scalar_outputs=None,
+        self, inputs, labels, scalar_outputs=None
     ):
         '''输入一个 batch 的 samples, 通过 ff_layers 后把 activity vector 送入线性分类器,
         计算 分类误差 和 分类精度, 最终返回更新后的 scalar_outputs.'''
@@ -184,6 +203,7 @@ class FF_model(torch.nn.Module):
         output = self.linear_classifier(input_classification_model.detach())
         output = output - torch.max(output, dim=-1, keepdim=True)[0] # torch.max 的返回值是一个 
         # namedtuple (values, indices), 因此需要再取一次 [0]; 这就相当于 output 每一行减去该行最大值.
+        # 这是为了防止, 在下面做 softmax 的时候发生数值爆炸.
         classification_loss = self.classification_loss(output, labels["class_labels"])
         classification_accuracy = utils.get_accuracy(
             self.opt, output.data, labels["class_labels"]
@@ -194,10 +214,51 @@ class FF_model(torch.nn.Module):
         scalar_outputs["classification_accuracy"] = classification_accuracy
         return scalar_outputs
 
+    def forward_accumulate_label_goodness(
+        self, inputs, labels, scalar_outputs=None
+    ):
+        '''输入一个 batch 的 inputs 与 labels, 分别用 10 类 labels 覆盖, 通过 ff_layer, 
+        收集 layer_1 和 layer_2 的 goodness 之和, 据此得到每个 sample 的预测 label, 
+        最后计算分类精度, 返回更新后的 scalar_outputs.'''
+        if scalar_outputs is None:
+            scalar_outputs = {
+                "classification_accuracy": torch.zeros(1, device=self.opt.device),
+            }
+
+        num_classes = self.opt.input.num_classes
+        z = inputs["neutral_sample"]
+        z = z.reshape(z.shape[0], -1)
+
+        # 在 neutral_sample 的基础上生成 z_labeled, 节省显存.
+        # 后面循环中所用的 z 都是上面 z.reshape 生成的二维 tensor.
+        goodness_per_label = []
+        for label in range(num_classes):
+            z_labeled = utils.overlay_label_on_z(num_classes, z, label)
+            z_labeled = self._layer_norm(z_labeled)
+            goodness_of_layers = []
+            with torch.no_grad():
+                for idx, layer in enumerate(self.model):
+                    z_labeled = layer(z_labeled)
+                    z_labeled = self.act_fn.apply(z_labeled)
+
+                    if idx >= 1:
+                        goodness_of_layers.append(torch.sum(z_labeled ** 2, dim=1))
+
+                    z_labeled = self._layer_norm(z_labeled)
+            goodness_per_label.append(sum(goodness_of_layers).unsqueeze(1))
+        goodness_per_label = torch.cat(goodness_per_label, 1)
+
+        classification_accuracy = utils.get_accuracy(
+            self.opt, goodness_per_label.data, labels["class_labels"]
+        )
+        scalar_outputs["classification_accuracy"] = classification_accuracy
+        return scalar_outputs
+
 
 class ReLU_full_grad(torch.autograd.Function):
     """ ReLU activation function that passes through the gradient irrespective of its input value. """
-    # 是否意味着 x < 0 时同样有 ReLU(x) = x, 而不会有 "死亡 ReLU" 产生?
+    # forward 和正常 ReLU 定义一样, 
+    # 但 backward 就直接把回传的 grad_output 原封不动输出, 不再判别 forward 时候的 output 是否 <=0.
 
     @staticmethod
     def forward(ctx, input):
