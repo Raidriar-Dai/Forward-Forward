@@ -220,44 +220,57 @@ def preprocess_inputs(opt, inputs, labels):
     return inputs, labels
 
 
-def get_linear_cooldown_lr(opt, epoch, lr):
-    '''当 epoch 过半之后, 对于每个新的 epoch, lr 都会以线性的速率减小.'''
-    if epoch > (opt.training.epochs // 2):
-        return lr * 2 * (1 + opt.training.epochs - epoch) / opt.training.epochs
+def get_linear_cooldown_afterHalf_lr(opt, epoch, lr):
+    '''当 epoch 过半之后, lr 线性减小, 当 epoch 跑满时减为 0.'''
+    if epoch >= (opt.training.epochs // 2):
+        return lr * 2 * (opt.training.epochs - epoch) / opt.training.epochs
     else:
         return lr
 
 
-def get_linear_cooldown_withLowerBound_lr(opt, epoch, lr):
-    '''当 epoch 过半之后, lr 以线性速率减小, 直至达到 0.4e-4 时停止, 不再减小.'''
-    if epoch > (opt.training.epochs // 2):
-        return max(lr * 2 * (1 + opt.training.epochs - epoch) / opt.training.epochs, 
-                   0.4e-4)
+def get_linear_cooldown_lowerBound_lr(opt, epoch, lr):
+    '''当 epoch 过半之后, lr 线性减小, 直至达到 opt.training.lower_bound 就不再减小, 
+    一直维持到 epoch 跑满.'''
+    if epoch >= (opt.training.epochs // 2):
+        return max(lr * 2 * (opt.training.epochs - epoch) / opt.training.epochs, 
+                   opt.training.lower_bound)
     else:
         return lr
 
 
-def update_learning_rate(optimizer, opt, epoch):
+def get_linear_cooldown_fromBegin_lr(opt, epoch, lr):
+    '''从 epoch=0 起, lr 就线性减小, 当 epoch 跑满时减为 0.'''
+    return lr * (opt.training.epochs - epoch) / opt.training.epochs
+
+
+def get_linear_cooldown_smallerSlope_lr(opt, epoch, lr):
+    '''当 epoch 过半之后, lr 线性减小, 当 epoch 跑满时减为 opt.training.slope_end.'''
+    half_epochs = opt.training.epochs // 2
+    if epoch >= half_epochs:
+        step = (lr - opt.training.slope_end) / (half_epochs - 1)
+        return lr - step * (epoch - half_epochs)
+    else:
+        return lr
+
+
+def update_learning_rate(opt, optimizer, epoch):
     '''在每个新的 epoch 都要 cooldown 当前 optimizer 的 lr.'''
-    if opt.training.lr_schedule == "default":
-        lr_schedule_func = [get_linear_cooldown_lr] * 2
-    elif opt.training.lr_schedule == "lower_bound":
-        lr_schedule_func = [get_linear_cooldown_withLowerBound_lr] * 2
-    elif opt.training.lr_schedule == "mixed":
-        lr_schedule_func = [get_linear_cooldown_lr, get_linear_cooldown_withLowerBound_lr]
-    else:
-        raise NotImplementedError
+    lr_schedule_dict = {"after_half": get_linear_cooldown_afterHalf_lr,
+                        "lower_bound": get_linear_cooldown_lowerBound_lr,
+                        "from_begin": get_linear_cooldown_fromBegin_lr,
+                        "smaller_slope": get_linear_cooldown_smallerSlope_lr}
+    lr_schedule = opt.training.lr_schedule
 
     if opt.training.test_mode == "one_pass_softmax":
-        optimizer.param_groups[0]["lr"] = lr_schedule_func[0](
+        optimizer.param_groups[0]["lr"] = lr_schedule_dict[lr_schedule[0]](
             opt, epoch, opt.training.learning_rate
         )
-        optimizer.param_groups[1]["lr"] = lr_schedule_func[1](
+        optimizer.param_groups[1]["lr"] = lr_schedule_dict[lr_schedule[1]](
             opt, epoch, opt.training.downstream_learning_rate
         )
 
     elif opt.training.test_mode == "compute_each_label":
-        optimizer.param_groups[0]["lr"] = lr_schedule_func[0](
+        optimizer.param_groups[0]["lr"] = lr_schedule_dict[lr_schedule[0]](
             opt, epoch, opt.training.learning_rate
         )
 
@@ -285,44 +298,44 @@ def print_results(opt, partition, iteration_time, scalar_outputs, epoch=None):
             print(f"{key}: {value:.4f} \t", end="") # 先输出当前 epoch 的训练/测试结果.
 
         # 再把当前 epoch 的训练/测试结果上传到 wandb.
-        # "one_pass_softmax" 测试模式下, 存在 cls_loss 这个 metric.
-        # if opt.training.test_mode == "one_pass_softmax":
-        #     if partition == "train":
-        #         wandb.log({ "Loss": scalar_outputs["Loss"],
-        #                     "Peer Normalization": scalar_outputs["Peer Normalization"],
-        #                     "loss_layer_0": scalar_outputs["loss_layer_0"],
-        #                     "loss_layer_1": scalar_outputs["loss_layer_1"],
-        #                     "loss_layer_2": scalar_outputs["loss_layer_2"],
-        #                     "ff_acc_layer_0": scalar_outputs["ff_accuracy_layer_0"],
-        #                     "ff_acc_layer_1": scalar_outputs["ff_accuracy_layer_1"],
-        #                     "ff_acc_layer_2": scalar_outputs["ff_accuracy_layer_2"],
-        #                     "cls_loss": scalar_outputs["classification_loss"],
-        #                     "cls_acc": scalar_outputs["classification_accuracy"] })
-        #     elif partition == "val":
-        #         wandb.log({ "Val Loss": scalar_outputs["Loss"],
-        #                     "Val cls_loss": scalar_outputs["classification_loss"],
-        #                     "Val cls_acc": scalar_outputs["classification_accuracy"] })
-        #     elif partition == "test":
-        #         wandb.log({ "Test Loss": scalar_outputs["Loss"],
-        #                     "Test cls_loss": scalar_outputs["classification_loss"],
-        #                     "Test cls_acc": scalar_outputs["classification_accuracy"] })
+        # "one_pass_softmax" 测试模式下, 存在 cls_loss 与 cls_acc 两个 metric.
+        if opt.training.test_mode == "one_pass_softmax":
+            if partition == "train":
+                wandb.log({ "Loss": scalar_outputs["Loss"],
+                            "Peer Normalization": scalar_outputs["Peer Normalization"],
+                            "loss_layer_0": scalar_outputs["loss_layer_0"],
+                            "loss_layer_1": scalar_outputs["loss_layer_1"],
+                            "loss_layer_2": scalar_outputs["loss_layer_2"],
+                            "ff_acc_layer_0": scalar_outputs["ff_accuracy_layer_0"],
+                            "ff_acc_layer_1": scalar_outputs["ff_accuracy_layer_1"],
+                            "ff_acc_layer_2": scalar_outputs["ff_accuracy_layer_2"],
+                            "cls_loss": scalar_outputs["classification_loss"],
+                            "cls_acc": scalar_outputs["classification_accuracy"] })
+            elif partition == "val":
+                wandb.log({ "Val Loss": scalar_outputs["Loss"],
+                            "Val cls_loss": scalar_outputs["classification_loss"],
+                            "Val cls_acc": scalar_outputs["classification_accuracy"] })
+            elif partition == "test":
+                wandb.log({ "Test Loss": scalar_outputs["Loss"],
+                            "Test cls_loss": scalar_outputs["classification_loss"],
+                            "Test cls_acc": scalar_outputs["classification_accuracy"] })
 
-        # # "compute_each_label" 测试模式下, 只存在 cls_acc 这个 metric.
-        # elif opt.training.test_mode == "compute_each_label":
-        #     if partition == "train":
-        #         wandb.log({ "Loss": scalar_outputs["Loss"],
-        #                     "Peer Normalization": scalar_outputs["Peer Normalization"],
-        #                     "loss_layer_0": scalar_outputs["loss_layer_0"],
-        #                     "loss_layer_1": scalar_outputs["loss_layer_1"],
-        #                     "loss_layer_2": scalar_outputs["loss_layer_2"],
-        #                     "ff_acc_layer_0": scalar_outputs["ff_accuracy_layer_0"],
-        #                     "ff_acc_layer_1": scalar_outputs["ff_accuracy_layer_1"],
-        #                     "ff_acc_layer_2": scalar_outputs["ff_accuracy_layer_2"],
-        #                     "cls_acc": scalar_outputs["classification_accuracy"] })
-        #     elif partition == "val":
-        #         wandb.log({ "Val cls_acc": scalar_outputs["classification_accuracy"] })
-        #     elif partition == "test":
-        #         wandb.log({ "Test cls_acc": scalar_outputs["classification_accuracy"] })
+        # "compute_each_label" 测试模式下, 只存在 cls_acc 这个 metric.
+        elif opt.training.test_mode == "compute_each_label":
+            if partition == "train":
+                wandb.log({ "Loss": scalar_outputs["Loss"],
+                            "Peer Normalization": scalar_outputs["Peer Normalization"],
+                            "loss_layer_0": scalar_outputs["loss_layer_0"],
+                            "loss_layer_1": scalar_outputs["loss_layer_1"],
+                            "loss_layer_2": scalar_outputs["loss_layer_2"],
+                            "ff_acc_layer_0": scalar_outputs["ff_accuracy_layer_0"],
+                            "ff_acc_layer_1": scalar_outputs["ff_accuracy_layer_1"],
+                            "ff_acc_layer_2": scalar_outputs["ff_accuracy_layer_2"],
+                            "cls_acc": scalar_outputs["classification_accuracy"] })
+            elif partition == "val":
+                wandb.log({ "Val cls_acc": scalar_outputs["classification_accuracy"] })
+            elif partition == "test":
+                wandb.log({ "Test cls_acc": scalar_outputs["classification_accuracy"] })
 
     print()
 
@@ -341,6 +354,7 @@ def overlay_label_on_z(num_classes, z, label):
     把 z 的每行前 10 列元素都替换成 label 所指示的那个标签.'''
     z_labeled = z.clone()
 
+    # 必须把 index tensor 放到 gpu 上, 否则它与 z_labeled 就不在同一设备上.
     index = torch.arange(num_classes).cuda()
     z_labeled.index_fill_(1, index, 0)
     z_labeled[:, label] = 1

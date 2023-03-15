@@ -1,0 +1,40 @@
+defaults:
+  - input: cifar10
+  - model: ${input}
+  - training: ${input}
+  - hydra: defaults
+  - wandb: defaults
+  - _self_
+
+seed: 42
+device: "cuda"
+
+input:
+  batch_size: 100
+
+model:
+  goodness_type: sum
+  theta: 2.0  # 当 goodness_type 为 sum 时, 不用管 theta.
+
+  peer_normalization: 0.0 # modif 2: 将 peer_norm 置为0, 观察效果.
+
+training:
+  test_mode: compute_each_label
+  # test_mode: one_pass_softmax
+  
+  final_test: True
+ 
+  epochs: 100
+  learning_rate: 0.75e-4 # modif 1: 减少 lr, 缓解 dead relu
+
+  # 当 test_mode 为 "compute_each_label" 时, 
+  # 不用管 downstream 开头的参数;
+  downstream_learning_rate: 0.75e-4
+  downstream_weight_decay: 3e-4 # modif 4: 把 cls_layer 的 weight_decay 设置成与 ff_layer 一样小, 先追求 overfitting.
+
+
+  lr_schedule: ["smaller_slope"]  # modif 3: ff_layer 与 cls_layer 采用不同的 lr_schedule.
+  # 当 lr_schedule 中没有 "lower_bound", 不用管该参数.
+  lower_bound: 0.0
+  # 当 lr_schedule 中没有 "smaller_slope", 不用管该参数.
+  slope_end: 0.3e-4

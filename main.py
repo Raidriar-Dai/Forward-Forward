@@ -18,7 +18,7 @@ def train(opt, model, optimizer):
 
     for epoch in range(opt.training.epochs):
         train_results = defaultdict(float)
-        optimizer = utils.update_learning_rate(optimizer, opt, epoch)
+        optimizer = utils.update_learning_rate(opt, optimizer, epoch)
 
         for inputs, labels in train_loader:
             inputs, labels = utils.preprocess_inputs(opt, inputs, labels)
@@ -76,14 +76,15 @@ def validate_or_test(opt, model, partition, epoch=None):
     model.train()   # test 结束后把 model 状态恢复到默认的 train().
 
 
-@hydra.main(version_base=None, config_path="configs/", config_name="defaults")
+# 每次跑实验前, 记得更改 config_name="对应数据集".
+@hydra.main(version_base=None, config_path="configs/", config_name="cifar10")
 def my_main(opt: DictConfig) -> None:
     opt = utils.parse_args(opt)
 
-    # wandb_cfg = omegaconf.OmegaConf.to_container(
-    #     opt, resolve=True, throw_on_missing=True
-    # )
-    # wandb.init(entity=opt.wandb.setup.entity, project=opt.wandb.setup.project, config=wandb_cfg)
+    wandb_cfg = omegaconf.OmegaConf.to_container(
+        opt, resolve=True, throw_on_missing=True
+    )
+    wandb.init(entity=opt.wandb.setup.entity, project=opt.wandb.setup.project, config=wandb_cfg)
 
     model, optimizer = utils.get_model_and_optimizer(opt)
     model = train(opt, model, optimizer)
@@ -92,10 +93,11 @@ def my_main(opt: DictConfig) -> None:
     if opt.training.final_test:
         validate_or_test(opt, model, "test")
 
-    # wandb.finish()
+    wandb.finish()
 
 
-@hydra.main(version_base=None, config_path="configs/", config_name="defaults")
+# 每次跑实验前, 记得更改 config_name="对应数据集".
+@hydra.main(version_base=None, config_path="configs/", config_name="cifar10")
 def show_parameters(opt: DictConfig) -> None:
     '''(自定义)查看 model.parameters() 属性.'''
     opt = utils.parse_args(opt)

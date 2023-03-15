@@ -34,9 +34,8 @@ class FF_model(torch.nn.Module):
         ]
 
 
+        # 只有测试采用 one-pass softmax 时, 才需要以下 attribute.
         if self.opt.training.test_mode == "one_pass_softmax":
-            # Initialize downstream classification loss.
-            # 这里应该是实现原论文中 "one-pass softmax" 的 test 方法.
             channels_for_classification_loss = sum(
                 self.num_channels[-i-1] for i in range(self.opt.model.num_layers - 1)
             )   # 纠错: 是否该改成 self.num_channels[-i-1]? 已修改.
@@ -54,7 +53,7 @@ class FF_model(torch.nn.Module):
         for m in self.model.modules():
             if isinstance(m, nn.Linear):
                 # 用了正态分布来初始化 weight_matrix (即最简单的一种 Xavier 初始化), 而没有用 nn.Linear 默认的均匀分布.
-                # 纠错: weight_matrix 的形状为: (out_features,in_features), 这里的 std 用的是 out_features 来初始化, 
+                # 纠错: weight_matrix 的形状为: (out_features,in_features), 原作者这里用 out_features 来初始化 std, 
                 # 但正常应该是用 in_features 来初始化吧? (不过对于 cifar10, out_features = in_features, 实际不影响)
                 # nn.init.normal_(
                 #     m.weight, mean=0, std=1 / math.sqrt(m.weight.shape[1])
@@ -73,7 +72,7 @@ class FF_model(torch.nn.Module):
                     # )    # modif 5: 把 linear_classifier 的 init 方式改成 normal/uniform.
 
     def _layer_norm(self, z, eps=1e-8):
-        # dim=-1 指最后一个 dim, 应该总归指一个 sample 中的多个分量所在的维度.
+        # dim=-1 指最后一个 dim, 应该总归指同一个 sample 中的多个分量所在的维度.
         # 纠错: 为什么这里是 mean 而不是 sum?
         # 可能的原因是: 使得归一化后的 sum_of_squares 等于 z.shape[1], 而非简单地归一化为 1.
         return z / (torch.sqrt(torch.mean(z ** 2, dim=-1, keepdim=True)) + eps) # modif 3: torch.mean -> torch.sum
@@ -249,7 +248,7 @@ class FF_model(torch.nn.Module):
         goodness_per_label = torch.cat(goodness_per_label, 1)
 
         classification_accuracy = utils.get_accuracy(
-            self.opt, goodness_per_label.data, labels["class_labels"]
+            self.opt, goodness_per_label, labels["class_labels"]    # modif 6: goodness_per_label.data
         )
         scalar_outputs["classification_accuracy"] = classification_accuracy
         return scalar_outputs
