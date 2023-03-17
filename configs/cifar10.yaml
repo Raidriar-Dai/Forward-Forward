@@ -26,15 +26,11 @@ training:
  
   epochs: 100
   learning_rate: 0.75e-4 # modif 1: 减少 lr, 缓解 dead relu
+  lr_boundary_points: [[50, 0.75e-4], 0.3e-4]
 
   # 当 test_mode 为 "compute_each_label" 时, 
-  # 不用管 downstream 开头的参数;
+  # 不用管下面三行 downstream 开头的参数;
   downstream_learning_rate: 0.75e-4
   downstream_weight_decay: 3e-4 # modif 4: 把 cls_layer 的 weight_decay 设置成与 ff_layer 一样小, 先追求 overfitting.
+  downstream_lr_boundary_points: [[50, 0.75e-4], 0.3e-4]
 
-
-  lr_schedule: ["smaller_slope"]  # modif 3: ff_layer 与 cls_layer 采用不同的 lr_schedule.
-  # 当 lr_schedule 中没有 "lower_bound", 不用管该参数.
-  lower_bound: 0.0
-  # 当 lr_schedule 中没有 "smaller_slope", 不用管该参数.
-  slope_end: 0.3e-4

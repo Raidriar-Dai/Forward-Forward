@@ -112,7 +112,7 @@ def seed_worker(worker_id):
 
 
 # def get_MNIST_partition(opt, partition):
-#     '''获取 dataset 的主要成分(用于 dataset 的构造)'''
+#     '''获取 MNIST 的 training set(前 50000 张) 与 validation set(后 10000 张)'''
 #     # 这里的 dataset 只被 transform 成为 Tensor, 没有经过 normalization 或 flatten. 
 #     if partition in ["train", "val", "train_val"]:
 #         mnist = torchvision.datasets.MNIST(
@@ -177,7 +177,7 @@ def get_MNIST_partition(opt, partition):
 
 
 def get_CIFAR10_partition(opt, partition):
-    '''获取 dataset 的主要成分(用于 dataset 的构造)'''
+    '''用 random_split 来获取 CIFAR10 的 training set 与 validation set.'''
     if partition in ["test"]:
         cifar10 = torchvision.datasets.CIFAR10(
             os.path.join(get_original_cwd(), opt.input.path),
@@ -220,58 +220,38 @@ def preprocess_inputs(opt, inputs, labels):
     return inputs, labels
 
 
-def get_linear_cooldown_afterHalf_lr(opt, epoch, lr):
-    '''当 epoch 过半之后, lr 线性减小, 当 epoch 跑满时减为 0.'''
-    if epoch >= (opt.training.epochs // 2):
-        return lr * 2 * (opt.training.epochs - epoch) / opt.training.epochs
-    else:
-        return lr
+def get_piecewise_linear_cooldown_lr(opt, epoch, lr, boundary_points):
+    '''通用线性 lr scheduler: 分段线性函数.'''
+    start_point, end_point = (0, lr), (opt.training.epochs - 1, boundary_points[-1])
+    boundary_points = [start_point] + boundary_points
+    boundary_points[-1] = end_point
 
+    for i in range(len(boundary_points) - 1):
+        # 这里两边的不等号都用了 <=, 是为了处理边界情况.
+        if epoch >= boundary_points[i][0] and epoch <= boundary_points[i+1][0]:
+            start_epoch, start_lr = boundary_points[i][0], boundary_points[i][1]
+            end_epoch, end_lr = boundary_points[i+1][0], boundary_points[i+1][1]
+            k = (end_lr - start_lr) / (end_epoch - start_epoch)
+            return k * (epoch - start_epoch) + start_lr
+        else:
+            continue
 
-def get_linear_cooldown_lowerBound_lr(opt, epoch, lr):
-    '''当 epoch 过半之后, lr 线性减小, 直至达到 opt.training.lower_bound 就不再减小, 
-    一直维持到 epoch 跑满.'''
-    if epoch >= (opt.training.epochs // 2):
-        return max(lr * 2 * (opt.training.epochs - epoch) / opt.training.epochs, 
-                   opt.training.lower_bound)
-    else:
-        return lr
-
-
-def get_linear_cooldown_fromBegin_lr(opt, epoch, lr):
-    '''从 epoch=0 起, lr 就线性减小, 当 epoch 跑满时减为 0.'''
-    return lr * (opt.training.epochs - epoch) / opt.training.epochs
-
-
-def get_linear_cooldown_smallerSlope_lr(opt, epoch, lr):
-    '''当 epoch 过半之后, lr 线性减小, 当 epoch 跑满时减为 opt.training.slope_end.'''
-    half_epochs = opt.training.epochs // 2
-    if epoch >= half_epochs:
-        step = (lr - opt.training.slope_end) / (half_epochs - 1)
-        return lr - step * (epoch - half_epochs)
-    else:
-        return lr
+    raise Exception("Failed to return a learning rate value.")
 
 
 def update_learning_rate(opt, optimizer, epoch):
     '''在每个新的 epoch 都要 cooldown 当前 optimizer 的 lr.'''
-    lr_schedule_dict = {"after_half": get_linear_cooldown_afterHalf_lr,
-                        "lower_bound": get_linear_cooldown_lowerBound_lr,
-                        "from_begin": get_linear_cooldown_fromBegin_lr,
-                        "smaller_slope": get_linear_cooldown_smallerSlope_lr}
-    lr_schedule = opt.training.lr_schedule
-
     if opt.training.test_mode == "one_pass_softmax":
-        optimizer.param_groups[0]["lr"] = lr_schedule_dict[lr_schedule[0]](
-            opt, epoch, opt.training.learning_rate
+        optimizer.param_groups[0]["lr"] = get_piecewise_linear_cooldown_lr(
+            opt, epoch, opt.training.learning_rate, opt.training.lr_boundary_points
         )
-        optimizer.param_groups[1]["lr"] = lr_schedule_dict[lr_schedule[1]](
-            opt, epoch, opt.training.downstream_learning_rate
+        optimizer.param_groups[1]["lr"] = get_piecewise_linear_cooldown_lr(
+            opt, epoch, opt.training.downstream_learning_rate, opt.training.downstream_lr_boundary_points
         )
 
     elif opt.training.test_mode == "compute_each_label":
-        optimizer.param_groups[0]["lr"] = lr_schedule_dict[lr_schedule[0]](
-            opt, epoch, opt.training.learning_rate
+        optimizer.param_groups[0]["lr"] = get_piecewise_linear_cooldown_lr(
+            opt, epoch, opt.training.learning_rate, opt.training.lr_boundary_points
         )
 
     return optimizer
