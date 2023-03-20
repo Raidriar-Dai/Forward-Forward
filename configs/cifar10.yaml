@@ -19,8 +19,8 @@ model:
   peer_normalization: 0.0 # modif dqr: 将 peer_norm 置为0, 观察效果.
 
 training:
-  # test_mode: compute_each_label
-  test_mode: one_pass_softmax
+  test_mode: compute_each_label
+  # test_mode: one_pass_softmax
 
   final_test: True
 

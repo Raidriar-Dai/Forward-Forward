@@ -22,11 +22,17 @@ class FF_model_conv1(torch.nn.Module):
         #modif 1
 
         # Initialize the model.
-        self.model = nn.ModuleList([nn.Conv2d(in_channels=3, out_channels=self.num_channels[0], kernel_size=self.receptions[0],stride=self.num_strides[0])])
+        self.model = nn.ModuleList(
+            [nn.Conv2d(in_channels=3, out_channels=self.num_channels[0], 
+                       kernel_size=self.receptions[0],stride=self.num_strides[0])]
+            )
         for i in range(1, len(self.num_channels)):
-            self.model.append(nn.Conv2d(self.num_channels[i-1], out_channels=self.num_channels[i], kernel_size=self.receptions[i],stride=self.num_strides[i]))
+            self.model.append(
+                nn.Conv2d(self.num_channels[i-1], out_channels=self.num_channels[i], 
+                          kernel_size=self.receptions[i],stride=self.num_strides[i])
+                )
         #modif 2
-        
+
         # Initialize forward-forward loss.
         self.ff_loss = nn.BCEWithLogitsLoss()    # modif 1: reduction='sum'
 
@@ -78,10 +84,11 @@ class FF_model_conv1(torch.nn.Module):
         # dim=-1 指最后一个 dim, 应该总归指同一个 sample 中的多个分量所在的维度.
         # 纠错: 为什么这里是 mean 而不是 sum?
         # 可能的原因是: 使得归一化后的 sum_of_squares 等于 z.shape[1], 而非简单地归一化为 1.
-        t=torch.reshape(z,(z.shape[0],-1))
-        s=z.shape
-        t=t/(torch.sqrt(torch.mean(t ** 2, dim=-1, keepdim=True)) + eps)
+        s = z.shape
+        t = torch.reshape(z,(z.shape[0],-1))
+        t = t / (torch.sqrt(torch.mean(t ** 2, dim=-1, keepdim=True)) + eps)
         return torch.reshape(t,(s)) # modif 6
+        # modif dqr
 
     def _calc_peer_normalization_loss(self, idx, x):
         # Only calculate mean activity over positive samples.
@@ -238,11 +245,11 @@ class FF_model_conv1(torch.nn.Module):
 
         num_classes = self.opt.input.num_classes
         z = inputs["neutral_sample"]
-        #z = z.reshape(z.shape[0], -1)
-        #卷积层这里不需要flatten
+        # z = z.reshape(z.shape[0], -1)
+        # modif: 卷积层这里不需要flatten
 
         # 在 neutral_sample 的基础上生成 z_labeled, 节省显存.
-        # 后面循环中所用的 z 都是上面 z.reshape 生成的二维 tensor.
+        # 注意: 后面循环中, z 和 z_labeled 都是四维的 tensor. flatten 操作应该在 utils 函数中各自进行.
         goodness_per_label = []
         for label in range(num_classes):
             z_labeled = utils.overlay_label_on_z(num_classes, z, label)
@@ -254,7 +261,9 @@ class FF_model_conv1(torch.nn.Module):
                     z_labeled = self.act_fn.apply(z_labeled)
 
                     if idx >= 1:
-                        goodness_of_layers.append(torch.sum(torch.reshape(z_labeled,(z_labeled.shape[0],-1)) ** 2, dim=1))
+                        goodness_of_layers.append(
+                            torch.sum(torch.reshape(z_labeled,(z_labeled.shape[0],-1)) ** 2, dim=1)
+                            )
 
                     z_labeled = self._layer_norm(z_labeled)
             goodness_per_label.append(sum(goodness_of_layers).unsqueeze(1))

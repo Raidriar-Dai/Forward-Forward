@@ -23,13 +23,13 @@ training:
   # test_mode: one_pass_softmax
 
   final_test: True
-
-  # 当 test_mode 为 compute_each_label 时, 
-  # 不用管 downstream 开头的参数; 
+ 
   epochs: 100
   learning_rate: 1e-3
   lr_boundary_points: [[50, 1e-3], 0.0]
 
+  # 当 test_mode 为 compute_each_label 时, 
+  # 不用管 downstream 开头的参数;
   downstream_learning_rate: 1e-2
   downstream_weight_decay: 3e-3
   downstream_lr_boundary_points: [[50, 1e-2], 0.0]

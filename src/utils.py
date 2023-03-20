@@ -10,7 +10,7 @@ import wandb
 from hydra.utils import get_original_cwd
 from omegaconf import OmegaConf
 
-from src import ff_dataset, ff_model_conv2
+from src import ff_dataset, ff_model_conv1, ff_model_conv2
 
 
 def parse_args(opt):
@@ -33,7 +33,7 @@ def show_model_parameters(opt):
 
 
 def get_model_and_optimizer(opt):
-    model = ff_model_conv2.FF_model_conv2(opt)
+    model = ff_model_conv2.FF_model_conv2(opt)  # modif dqr: 改成了 conv1 而非 conv2
     if "cuda" in opt.device:
         model = model.cuda()
     # print(model, "\n")  # 输出 FF_model 的组件信息.

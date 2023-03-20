@@ -162,15 +162,15 @@ class FF_model_conv2(torch.nn.Module):
             # 可选项: 是否把 peer loss 这个正则因子加入最终的 Loss 中.
             # modif
             if isinstance(layer, nn.Conv2d):
+                if idx==3 or idx==4:
+                    idx=idx-1   # 抵消 1 层 maxpool 
+                elif idx>=6 and idx<=9:
+                    idx=idx-2   # 抵消 2 层 maxpool
                 if self.opt.model.peer_normalization > 0:
-                    if idx==3 or idx==4:
-                        idx=idx-1   # 抵消 1 层 maxpool 
-                    elif idx>=6 and idx<=9:
-                        idx=idx-2   # 抵消 2 层 maxpool
                     peer_loss = self._calc_peer_normalization_loss(idx, z)
                     scalar_outputs["Peer Normalization"] += peer_loss
                     scalar_outputs["Loss"] += self.opt.model.peer_normalization * peer_loss
-                    
+
                 ff_loss, ff_accuracy = self._calc_ff_loss(z, posneg_labels)
                 scalar_outputs[f"loss_layer_{idx}"] = ff_loss
                 scalar_outputs[f"ff_accuracy_layer_{idx}"] = ff_accuracy
@@ -272,8 +272,7 @@ class FF_model_conv2(torch.nn.Module):
 
                     # modif dqr: 只有 卷积层 的 layer_goodness 才应该被计入,
                     # pooling layer 没有参数, 也不需要计算其 layer_goodness.
-                    # if idx >= 1:
-                    if isinstance(layer, nn.Conv2d):
+                    if isinstance(layer, nn.Conv2d) and idx >= 1:
                         goodness_of_layers.append(
                             torch.sum(torch.reshape(z_labeled,(z_labeled.shape[0],-1)) ** 2, dim=1)
                             )
