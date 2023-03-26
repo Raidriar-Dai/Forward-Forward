@@ -1,0 +1,37 @@
+# 专用于 bp_model_mlp 的配置文件.
+
+defaults:
+  - hydra: defaults
+  - wandb: defaults
+  - _self_
+
+seed: 42
+device: "cuda"
+
+input:
+  path: datasets
+  dataset: cifar10
+  batch_size: 100 # modif 2
+  val_size: 5000
+  num_classes: 10
+
+model:
+  input_dim: 3072
+  hidden_dim: 3072
+  num_layers: 3
+  training_type: bp
+
+training:
+  epochs: 100
+
+  learning_rate: 1e-4 # modif 1
+  final_lr: 0.4e-4
+  # 简单起见, bp_mlp 网络中, lr_schedule 固定了 初始 lr 和 最终 lr.
+  weight_decay: 3e-4
+  momentum: 0.9
+
+  val_idx: -1
+  final_test: True
+
+
+

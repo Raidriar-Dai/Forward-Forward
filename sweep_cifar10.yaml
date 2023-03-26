@@ -1,21 +1,21 @@
 program: main.py
 method: grid
-name: cifar10 - kaiming init + low lr(1e-4 lr, 100/200 epochs, peer_norm=0/0.03)
+name: cifar10 - bp网络的lr调试
 metric:
     goal: maximize
     name: Test cls_acc
 
 parameters:
-  # input.batch_size:
-  #   values: [100, 250, 500]
-  # training.learning_rate:
-  #   values: [0.002, 0.003, 0.004, 0.005]
+  input.batch_size:
+    values: [100, 200, 500]
+  training.learning_rate:
+    values: [1e-3, 5e-4, 1e-4, 0.5e-4, 2e-3]
   # model.theta:
   #   values: [2.0, 5.0, 10.0]
-  training.epochs:
-    values: [100, 200]
-  model.peer_normalization:
-    values: [0.0, 0.03]
+  # training.epochs:
+  #   values: [100, 200]
+  # model.peer_normalization:
+  #   values: [0.0, 0.03]
 
 
 command:

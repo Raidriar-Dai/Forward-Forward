@@ -1,3 +1,0 @@
-# 默认配置: 适用于 MNIST.
-path: datasets
-batch_size: 100

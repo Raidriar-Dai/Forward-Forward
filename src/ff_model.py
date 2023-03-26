@@ -12,7 +12,7 @@ class FF_model(torch.nn.Module):
     """The model trained with Forward-Forward (FF)."""
 
     def __init__(self, opt):
-        super(FF_model, self).__init__()
+        super(FF_model, self).__init__()    # 这里的 super() 用法是 python 2.x 的用法.
 
         self.opt = opt
         self.input_dim = opt.model.input_dim
@@ -50,6 +50,8 @@ class FF_model(torch.nn.Module):
 
     def _init_weights(self):
         # 纠错: 是否该改为 model.children()? 不过对于当前模型, 实际不影响.
+        # model.modules() 更好. 若 model 内部还存在一个 Sequential, 那只有 model.modules() 会
+        # 递归地访问并初始化该 Sequential 内部的 layers.
         for m in self.model.modules():
             if isinstance(m, nn.Linear):
                 # 用了正态分布来初始化 weight_matrix (即最简单的一种 Xavier 初始化), 而没有用 nn.Linear 默认的均匀分布.

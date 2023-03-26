@@ -1,3 +1,5 @@
+training_type: ff
+
 peer_normalization: 0.03  # 控制 peer_normalization_loss 的权重/系数
 momentum: 0.9  # Momentum to use for the running mean in peer normalization loss.
 

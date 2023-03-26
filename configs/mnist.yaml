@@ -1,3 +1,5 @@
+# 已经在 model 文件夹中指明 training_type: ff
+
 defaults:
   - input: mnist
   - model: ${input}
@@ -17,6 +19,8 @@ model:
   theta: 2.0  # 当 goodness_type 为 sum 时, 不用管 theta.
 
   peer_normalization: 0.0 # modif 2: 将 peer_norm 置为0, 观察效果.
+
+  training_type: ff
 
 training:
   test_mode: compute_each_label

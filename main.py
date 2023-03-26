@@ -18,7 +18,8 @@ def train(opt, model, optimizer):
 
     for epoch in range(opt.training.epochs):
         train_results = defaultdict(float)
-        optimizer = utils.update_learning_rate(opt, optimizer, epoch)
+        # 当 epoch 比较少, 不想要 lr 逐渐减小时, 可以把 update_lr 注释掉.
+        # optimizer = utils.update_learning_rate(opt, optimizer, epoch)
 
         for inputs, labels in train_loader:
             inputs, labels = utils.preprocess_inputs(opt, inputs, labels)
@@ -59,14 +60,17 @@ def validate_or_test(opt, model, partition, epoch=None):
         for inputs, labels in data_loader:
             inputs, labels = utils.preprocess_inputs(opt, inputs, labels)
 
-            if opt.training.test_mode == "one_pass_softmax":
-                scalar_outputs = model.forward_downstream_classification_model(
-                    inputs, labels
-                )
-            elif opt.training.test_mode == "compute_each_label":
-                scalar_outputs = model.forward_accumulate_label_goodness(
-                    inputs, labels
-                )
+            if opt.model.training_type == "ff":
+                if opt.training.test_mode == "one_pass_softmax":
+                    scalar_outputs = model.forward_downstream_classification_model(
+                        inputs, labels
+                    )
+                elif opt.training.test_mode == "compute_each_label":
+                    scalar_outputs = model.forward_accumulate_label_goodness(
+                        inputs, labels
+                    )
+            elif opt.model.training_type == "bp":
+                scalar_outputs = model(inputs, labels)
 
             test_results = utils.log_results(
                 test_results, scalar_outputs, num_steps_per_epoch
@@ -76,8 +80,8 @@ def validate_or_test(opt, model, partition, epoch=None):
     model.train()   # test 结束后把 model 状态恢复到默认的 train().
 
 
-# 每次跑实验前, 记得更改 config_name="对应数据集".
-@hydra.main(version_base=None, config_path="configs/", config_name="cifar10")
+# 每次跑实验前, 记得更改 config_name="对应配置文件".
+@hydra.main(version_base=None, config_path="configs/", config_name="bp_mnist")
 def my_main(opt: DictConfig) -> None:
     opt = utils.parse_args(opt)
 
@@ -96,7 +100,7 @@ def my_main(opt: DictConfig) -> None:
     wandb.finish()
 
 
-# 每次跑实验前, 记得更改 config_name="对应数据集".
+# 每次跑实验前, 记得更改 config_name="对应配置文件".
 @hydra.main(version_base=None, config_path="configs/", config_name="cifar10")
 def show_parameters(opt: DictConfig) -> None:
     '''(自定义)查看 model.parameters() 属性.'''
