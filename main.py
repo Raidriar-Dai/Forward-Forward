@@ -18,8 +18,8 @@ def train(opt, model, optimizer):
 
     for epoch in range(opt.training.epochs):
         train_results = defaultdict(float)
-        # 当 epoch 比较少, 不想要 lr 逐渐减小时, 可以把 update_lr 注释掉.
-        # optimizer = utils.update_learning_rate(opt, optimizer, epoch)
+        # modif: 当 epoch 比较少, 不想要 lr 逐渐减小时, 可以把 update_lr 注释掉.
+        optimizer = utils.update_learning_rate(opt, optimizer, epoch)
 
         for inputs, labels in train_loader:
             inputs, labels = utils.preprocess_inputs(opt, inputs, labels)
@@ -40,9 +40,15 @@ def train(opt, model, optimizer):
         utils.print_results(opt, "train", time.time() - start_time, train_results, epoch)
         start_time = time.time()
 
-        # Validate.
-        if epoch % opt.training.val_idx == 0 and opt.training.val_idx != -1:
+        # 当 to_validate = False 时, train_loader 不会被 split, 后续也不会触发 "val" 过程.
+        # 注意: 用 random_split 划分数据集的时候, 这里的 validation 是有问题的,
+        # 因为每次 validate 时都会重新随机获取验证集, 可能导致之前的训练数据混在这次的验证数据中.
+        if opt.training.to_validate and (epoch + 1) % 20 == 0:
             validate_or_test(opt, model, "val", epoch=epoch)
+        
+        # modif: 新增 “每训练10个 epochs 就 test 1次” 的过程, 目的是查看从哪个 epoch 开始过拟合.
+        if (epoch + 1) % 10 == 0:
+            validate_or_test(opt, model, "test", epoch=epoch)
 
     return model
 
@@ -92,7 +98,7 @@ def my_main(opt: DictConfig) -> None:
 
     model, optimizer = utils.get_model_and_optimizer(opt)
     model = train(opt, model, optimizer)
-    validate_or_test(opt, model, "val")
+    # 现在默认不再有 validation.
 
     if opt.training.final_test:
         validate_or_test(opt, model, "test")

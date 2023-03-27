@@ -195,13 +195,15 @@ def get_MNIST_partition(opt, partition):
             download=True,
             transform=torchvision.transforms.ToTensor(),
         )
-        mnist_train, mnist_val = torch.utils.data.random_split(
-            mnist, [len(mnist) - opt.input.val_size, opt.input.val_size]
-            )
-        if partition == "train":
-            mnist = mnist_train
-        elif partition == "val":
-            mnist = mnist_val
+        # 若 to_validate == False, 则不要 validation, 直接返回 training set 即可.
+        if opt.training.to_validate:
+            mnist_train, mnist_val = torch.utils.data.random_split(
+                mnist, [len(mnist) - opt.input.val_size, opt.input.val_size]
+                )
+            if partition == "train":
+                mnist = mnist_train
+            elif partition == "val":
+                mnist = mnist_val
     else:
         raise NotImplementedError
 
@@ -224,13 +226,15 @@ def get_CIFAR10_partition(opt, partition):
             download=True,
             transform=torchvision.transforms.ToTensor(),
         )
-        cifar10_train, cifar10_val = torch.utils.data.random_split(
-            cifar10, [len(cifar10) - opt.input.val_size, opt.input.val_size]
-            )
-        if partition == "train":
-            cifar10 = cifar10_train
-        elif partition == "val":
-            cifar10 = cifar10_val
+        # 若 to_validate == False, 则不要 validation, 直接返回 training set 即可. 
+        if opt.training.to_validate:
+            cifar10_train, cifar10_val = torch.utils.data.random_split(
+                cifar10, [len(cifar10) - opt.input.val_size, opt.input.val_size]
+                )
+            if partition == "train":
+                cifar10 = cifar10_train
+            elif partition == "val":
+                cifar10 = cifar10_val
     else:
         raise NotImplementedError
 
@@ -304,8 +308,11 @@ def update_learning_rate(opt, optimizer, epoch):
 
     elif opt.model.training_type == 'bp':
         # 为了 sweep 的方便, 在 bp_mlp 网络中, 固定采用 smallerSlope 作为 lr_schedule. 
-        optimizer.param_groups[0]["lr"] = get_linear_cooldown_smallerSlope_lr(
-            opt, epoch, opt.training.learning_rate
+        # optimizer.param_groups[0]["lr"] = get_linear_cooldown_smallerSlope_lr(
+        #     opt, epoch, opt.training.learning_rate
+        # )
+        optimizer.param_groups[0]["lr"] = get_piecewise_linear_cooldown_lr(
+            opt, epoch, opt.training.learning_rate, opt.training.lr_boundary_points
         )
 
     return optimizer

@@ -15,6 +15,8 @@ input:
   batch_size: 100
 
 model:
+  num_layers: 2 # modif: 考察层数减少, 是否会改变 bp 与 ff 的 performance 差距.
+
   goodness_type: sum
   theta: 2.0  # 当 goodness_type 为 sum 时, 不用管 theta.
 
@@ -26,9 +28,10 @@ training:
   test_mode: compute_each_label
   # test_mode: one_pass_softmax
 
+  to_validate: False  # modif: 默认情况为 False
   final_test: True
 
-  epochs: 500
+  epochs: 400
   learning_rate: 0.75e-4 # modif 1: 减少 lr, 缓解 dead relu
   lr_boundary_points: [[50, 0.75e-4], [150, 0.45e-4], [300, 0.3e-4], 0.25e-4]
 

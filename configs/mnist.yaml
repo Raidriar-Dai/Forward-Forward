@@ -15,6 +15,8 @@ input:
   batch_size: 100
 
 model:
+  num_layers: 2 # modif: 考察层数减少, 是否会改变 bp 与 ff 的 performance 差距.
+
   goodness_type: sum
   theta: 2.0  # 当 goodness_type 为 sum 时, 不用管 theta.
 
@@ -26,14 +28,15 @@ training:
   test_mode: compute_each_label
   # test_mode: one_pass_softmax
 
+  to_validate: False
   final_test: True
 
-  # 当 test_mode 为 compute_each_label 时, 
-  # 不用管 downstream 开头的参数; 
   epochs: 100
   learning_rate: 1e-3
   lr_boundary_points: [[50, 1e-3], 0.0]
 
+  # 当 test_mode 为 compute_each_label 时, 
+  # 不用管下面三行 downstream 开头的参数; 
   downstream_learning_rate: 1e-2
   downstream_weight_decay: 3e-3
   downstream_lr_boundary_points: [[50, 1e-2], 0.0]

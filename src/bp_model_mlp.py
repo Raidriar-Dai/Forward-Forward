@@ -19,7 +19,10 @@ class BP_model_mlp(torch.nn.Module):
         self.num_channels = [self.opt.model.hidden_dim] * self.opt.model.num_layers
         self.output_dim = opt.input.num_classes
         # self.num_channels 只包含中间层 hidden_dims, 不包括 input_dim 与 output_dim.
-        self.act_fn = ReLU_full_grad()
+
+        # modif 1: 试试用传统的 ReLU 激活, 而不是 full_grad.
+        # self.act_fn = ReLU_full_grad()
+        self.act_fn = nn.ReLU()
         
         # 初始化网络结构: self.model 最终为 [3072, 3072, 3072, 3072, 10]
         self.model = nn.ModuleList([nn.Linear(self.input_dim, self.num_channels[0])])
@@ -57,7 +60,10 @@ class BP_model_mlp(torch.nn.Module):
 
         for idx, layer in enumerate(self.model):
             z = layer(z)
-            z = self.act_fn.apply(z)
+            # 注意: 线性分类头不需要 act_fn, 只有前面几层需要.
+            if idx < len(self.num_channels):
+                # z = self.act_fn.apply(z)    # modif 1: 用 relu_full_grad 时的 api.
+                z = self.act_fn(z)          # modif 1: 用 普通 relu 时的 api.
 
         # z 已经变成一个 logits, 其中每个 sample 的长度均为 10.
         output = z - torch.max(z, dim=-1, keepdim=True)[0]
