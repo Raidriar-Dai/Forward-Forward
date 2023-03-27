@@ -19,7 +19,7 @@ input:
 model:
   input_dim: 784
   hidden_dim: 1000  # modif 3
-  num_layers: 2 # modif 4
+  num_layers: 3 # modif 4
   training_type: bp
 
 training:

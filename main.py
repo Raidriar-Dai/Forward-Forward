@@ -45,7 +45,7 @@ def train(opt, model, optimizer):
         # 因为每次 validate 时都会重新随机获取验证集, 可能导致之前的训练数据混在这次的验证数据中.
         if opt.training.to_validate and (epoch + 1) % 20 == 0:
             validate_or_test(opt, model, "val", epoch=epoch)
-        
+
         # modif: 新增 “每训练10个 epochs 就 test 1次” 的过程, 目的是查看从哪个 epoch 开始过拟合.
         if (epoch + 1) % 10 == 0:
             validate_or_test(opt, model, "test", epoch=epoch)

@@ -15,7 +15,7 @@ input:
   batch_size: 100
 
 model:
-  num_layers: 2 # modif: 考察层数减少, 是否会改变 bp 与 ff 的 performance 差距.
+  num_layers: 3 # modif: 考察层数减少, 是否会改变 bp 与 ff 的 performance 差距.
 
   goodness_type: sum
   theta: 2.0  # 当 goodness_type 为 sum 时, 不用管 theta.
