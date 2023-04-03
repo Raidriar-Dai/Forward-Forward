@@ -12,7 +12,7 @@ seed: 42
 device: "cuda"
 
 input:
-  batch_size: 100
+  batch_size: 100 # modif 5: 增大 batch_size, 看看 lr 能否胜任.
 
 model:
   num_layers: 3 # modif: 考察层数减少, 是否会改变 bp 与 ff 的 performance 差距.
@@ -25,19 +25,27 @@ model:
   training_type: ff
 
 training:
-  test_mode: compute_each_label
-  # test_mode: one_pass_softmax
+  # test_mode: compute_each_label
+  test_mode: one_pass_softmax
 
   to_validate: False  # modif: 默认情况为 False
   final_test: True
 
-  epochs: 400
-  learning_rate: 0.75e-4 # modif 1: 减少 lr, 缓解 dead relu
-  lr_boundary_points: [[50, 0.75e-4], [150, 0.45e-4], [300, 0.3e-4], 0.25e-4]
+  # 下面给出 2组 lr 参数, epoch 数目一大一小.
+
+  # epochs: 400
+  # weight_decay: 3e-4
+  # learning_rate: 0.75e-4 # modif 1: 减少 lr, 缓解 dead relu
+  # lr_boundary_points: [[50, 0.75e-4], [150, 0.45e-4], [300, 0.3e-4], 0.25e-4]
+
+  epochs: 50
+  weight_decay: 3e-4
+  learning_rate: 0.5e-5 # modif 1: 减少 lr, 缓解 dead relu
+  lr_boundary_points: [0.0]
 
   # 当 test_mode 为 "compute_each_label" 时, 
   # 不用管下面三行 downstream 开头的参数;
-  downstream_learning_rate: 0.75e-4
   downstream_weight_decay: 3e-4 # modif 4: 把 cls_layer 的 weight_decay 设置成与 ff_layer 一样小, 先追求 overfitting.
-  downstream_lr_boundary_points: [[50, 0.75e-4], 0.3e-4]
+  downstream_learning_rate: 1e-5
+  downstream_lr_boundary_points: [1e-8]
 

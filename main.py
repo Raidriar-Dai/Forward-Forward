@@ -87,7 +87,7 @@ def validate_or_test(opt, model, partition, epoch=None):
 
 
 # 每次跑实验前, 记得更改 config_name="对应配置文件".
-@hydra.main(version_base=None, config_path="configs/", config_name="bp_mnist")
+@hydra.main(version_base=None, config_path="configs/", config_name="cifar10")
 def my_main(opt: DictConfig) -> None:
     opt = utils.parse_args(opt)
 
@@ -106,12 +106,12 @@ def my_main(opt: DictConfig) -> None:
     wandb.finish()
 
 
-# 每次跑实验前, 记得更改 config_name="对应配置文件".
-@hydra.main(version_base=None, config_path="configs/", config_name="cifar10")
-def show_parameters(opt: DictConfig) -> None:
-    '''(自定义)查看 model.parameters() 属性.'''
-    opt = utils.parse_args(opt)
-    utils.show_model_parameters(opt)
+# # 每次跑实验前, 记得更改 config_name="对应配置文件".
+# @hydra.main(version_base=None, config_path="configs/", config_name="cifar10")
+# def show_parameters(opt: DictConfig) -> None:
+#     '''(自定义)查看 model.parameters() 属性.'''
+#     opt = utils.parse_args(opt)
+#     utils.show_model_parameters(opt)
 
 
 if __name__ == "__main__":

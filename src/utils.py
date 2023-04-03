@@ -416,3 +416,23 @@ def overlay_label_on_z(num_classes, z, label):
     z_labeled[:, label] = 1
 
     return z_labeled
+
+
+def hard_neg_sampling(output, labels):
+    '''输入 2维 output 和 1维 labels, 返回 1维 的 hard_neg labels.'''
+    # 每一行的最大元素所对应的 index
+    max_index_dim1 = torch.argmax(output, dim=1)
+    # 哪些行的最大元素 index 和 labels 相等, 就需要取这些行的次大元素的 index
+    shared_index_dim0 = max_index_dim1 == labels
+    output[shared_index_dim0, max_index_dim1[shared_index_dim0]] = float('-inf')
+
+    return torch.argmax(output, dim=1)
+
+
+def get_neg_samples(opt, inputs, neg_labels):
+    '''把 inputs["neg_image"] 换成用 neg_labels 嵌入的.'''
+    one_hot_neg_labels = torch.nn.functional.one_hot(
+        neg_labels, num_classes=opt.input.num_classes
+    )
+
+    inputs["neg_images"][:, 0, 0, :opt.input.num_classes] = one_hot_neg_labels

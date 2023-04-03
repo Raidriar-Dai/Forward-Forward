@@ -117,15 +117,41 @@ class FF_model(torch.nn.Module):
             ).item()
         return ff_loss, ff_accuracy
 
+
     def forward(self, inputs, labels):
-        '''输入一个 batch 的 samples, 经过3层 ff_layer, 再经过线性分类器, 
-        或者直接通过 "compute goodness for each label" 来分类, 最后返回输出 dict.'''
+        '''输入一个 minibatch 的 samples, 经过3层 ff_layer, 再经过线性分类器, 
+        或者直接通过 "compute goodness for each label" 来分类, 最后返回输出 dict.
+        特别地, 包含 hard-negative-sampling.'''
         scalar_outputs = {
             "Loss": torch.zeros(1, device=self.opt.device),
             "Peer Normalization": torch.zeros(1, device=self.opt.device),
         }
 
-        # Concatenate positive and negative samples and create corresponding labels.
+        # STEP1: Hard-negative Sampling
+        if self.opt.training.test_mode == "one_pass_softmax":
+            z = inputs["neutral_sample"]
+            z = z.reshape(z.shape[0], -1)
+            z = self._layer_norm(z)
+
+            input_classification_model = []
+            with torch.no_grad():
+                for idx, layer in enumerate(self.model):
+                    z = layer(z)
+                    z = self.act_fn.apply(z)
+                    z = self._layer_norm(z)
+                    if idx >= 1:
+                        input_classification_model.append(z)
+
+                input_classification_model = torch.concat(input_classification_model, dim=-1)
+                # 在 negative-sampling 的时候, 不需要求导, 因此所有 forward 过程都在 no_grad 框架下, 也就不需要 detach.
+                output = self.linear_classifier(input_classification_model)
+                output = output - torch.max(output, dim=-1, keepdim=True)[0]
+
+            # 获取 neg_labels, 并将其嵌入 inputs["neg_images"], 得到 hard-neg-images.
+            neg_labels = utils.hard_neg_sampling(output, labels["class_labels"])
+            utils.get_neg_samples(self.opt, inputs, neg_labels)
+
+        # STEP2: 正常 forward 并计算 ff_loss.
         # 沿着 batch 维度把 pos_tensors 与 neg_tensors 拼在一起构成 z, 并创建对应的 labels.
         # 其中 pos data 的 label 值为 1, neg data 的 label 值为 0.
         z = torch.cat([inputs["pos_images"], inputs["neg_images"]], dim=0) 
@@ -156,6 +182,7 @@ class FF_model(torch.nn.Module):
             z = z.detach()  # 特别注意: 把 z 送入下一层 layer 的 forward 之前, 必须 detach 掉 z 在上一层 layer 中的计算图.
             z = self._layer_norm(z)
 
+        # STEP3: 继续训练线性分类头, 或者直接计算当前模型的 cls_acc.
         if self.opt.training.test_mode == "one_pass_softmax":
             scalar_outputs = self.forward_downstream_classification_model(
                 inputs, labels, scalar_outputs=scalar_outputs
@@ -214,6 +241,7 @@ class FF_model(torch.nn.Module):
         scalar_outputs["classification_loss"] = classification_loss
         scalar_outputs["classification_accuracy"] = classification_accuracy
         return scalar_outputs
+
 
     def forward_accumulate_label_goodness(
         self, inputs, labels, scalar_outputs=None

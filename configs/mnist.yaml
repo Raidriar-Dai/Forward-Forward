@@ -25,8 +25,8 @@ model:
   training_type: ff
 
 training:
-  test_mode: compute_each_label
-  # test_mode: one_pass_softmax
+  # test_mode: compute_each_label
+  test_mode: one_pass_softmax
 
   to_validate: False
   final_test: True

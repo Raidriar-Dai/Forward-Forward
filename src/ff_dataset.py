@@ -40,7 +40,8 @@ class FF_Dataset(torch.utils.data.Dataset):
         return pos_sample
 
     def _get_neg_sample(self, sample, class_label):
-        '''Create randomly sampled one-hot label.'''
+        '''若只采用 hard-neg-sampling, 则实际返回就是没有加 label 的 anchor(原样本), 
+        是为了 neg_sample 提前预留空间.'''
         classes = list(range(self.num_classes))
         classes.remove(class_label)  # Remove true label from possible choices.
         wrong_class_label = np.random.choice(classes)
