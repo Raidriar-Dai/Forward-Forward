@@ -1,6 +1,7 @@
 import os
 import random
 from datetime import timedelta
+from collections import ChainMap
 
 import numpy as np
 import torch
@@ -10,7 +11,7 @@ import wandb
 from hydra.utils import get_original_cwd
 from omegaconf import OmegaConf
 
-from src import ff_dataset, ff_model, bp_model_mlp
+from src import ff_dataset, ff_model_convmixer, bp_model_mlp
 
 
 def parse_args(opt):
@@ -23,22 +24,21 @@ def parse_args(opt):
     return opt
 
 
-def show_model_parameters(opt):
-    '''(自定义)打印出 model.classification_loss.parameters(), 查看其具体有哪些参数.'''
-    model = ff_model.FF_model(opt)
-    if "cuda" in opt.device:
-        model = model.cuda() 
-    for x in model.classification_loss.parameters():
-        print(x)
+# def show_model_parameters(opt):
+#     '''(自定义)打印出 model.classification_loss.parameters(), 查看其具体有哪些参数.'''
+#     model = ff_model.FF_model(opt)
+#     if "cuda" in opt.device:
+#         model = model.cuda() 
+#     for x in model.classification_loss.parameters():
+#         print(x)
 
 
 def get_model_and_optimizer(opt):
-
-    # 当 config 想得到 ff 网络: 
+ 
     if opt.model.training_type == 'ff':
         # TODO 1: 将来若要把 conv_net 等其他 ff 网络结构整合进来,
         # 就在这里建一个 dict, 存放 <file.model>, 用来生成下面的 model object.
-        model = ff_model.FF_model(opt)
+        model = ff_model_convmixer.FF_model_convmixer(opt)
         if "cuda" in opt.device:
             model = model.cuda()
         # print(model, "\n")  # 输出 FF_model 的组件信息.
@@ -49,11 +49,8 @@ def get_model_and_optimizer(opt):
                 p
                 for p in model.parameters()
                 if all(p is not x for x in model.linear_classifier.parameters())
-                # 疑问: 经试验, model.classification_loss.parameters() 是一个空的 generator?
             ]
             # Torch.optim 的 "per-parameter options" 初始化方法: 用多个字典定义多个独立的 parameter group.
-            # 纠错: main model 中的参数是否应该是 model.model.parameters(),
-            # 而 downstream classification model 中的参数是否应该是 model.linear_classifier.parameters()?
             optimizer = torch.optim.SGD(
                 [
                     {
@@ -86,8 +83,7 @@ def get_model_and_optimizer(opt):
                     }
                 ]
             )
-    
-    # 当 config 想得到 bp 网络: 
+
     elif opt.model.training_type == 'bp':
         model = bp_model_mlp.BP_model_mlp(opt)
         if "cuda" in opt.device:
@@ -260,59 +256,69 @@ def preprocess_inputs(opt, inputs, labels):
     return inputs, labels
 
 
-def get_piecewise_linear_cooldown_lr(opt, epoch, lr, boundary_points):
-    '''通用线性 lr scheduler: 分段线性函数.'''
-    start_point, end_point = (0, lr), (opt.training.epochs - 1, boundary_points[-1])
-    boundary_points = [start_point] + boundary_points
-    boundary_points[-1] = end_point
+# def get_piecewise_linear_cooldown_lr(opt, epoch, lr, boundary_points):
+#     '''通用线性 lr scheduler: 分段线性函数.'''
+#     start_point, end_point = (0, lr), (opt.training.epochs - 1, boundary_points[-1])
+#     boundary_points = [start_point] + boundary_points
+#     boundary_points[-1] = end_point
 
-    for i in range(len(boundary_points) - 1):
-        # 这里两边的不等号都用了 <=, 是为了处理边界情况.
-        if epoch >= boundary_points[i][0] and epoch <= boundary_points[i+1][0]:
-            start_epoch, start_lr = boundary_points[i][0], boundary_points[i][1]
-            end_epoch, end_lr = boundary_points[i+1][0], boundary_points[i+1][1]
-            k = (end_lr - start_lr) / (end_epoch - start_epoch)
-            return k * (epoch - start_epoch) + start_lr
-        else:
-            continue
+#     for i in range(len(boundary_points) - 1):
+#         # 这里两边的不等号都用了 <=, 是为了处理边界情况.
+#         if epoch >= boundary_points[i][0] and epoch <= boundary_points[i+1][0]:
+#             start_epoch, start_lr = boundary_points[i][0], boundary_points[i][1]
+#             end_epoch, end_lr = boundary_points[i+1][0], boundary_points[i+1][1]
+#             k = (end_lr - start_lr) / (end_epoch - start_epoch)
+#             return k * (epoch - start_epoch) + start_lr
+#         else:
+#             continue
 
-    raise Exception("Failed to return a learning rate value.")
+#     raise Exception("Failed to return a learning rate value.")
 
 
-# 为了 sweep 的方便, 仍然保留这个简易的 lr_scheduler.
-def get_linear_cooldown_smallerSlope_lr(opt, epoch, lr):
-    '''当 epoch 过半之后, lr 线性减小, 当 epoch 跑满时减为 opt.training.final_lr.'''
-    half_epochs = opt.training.epochs // 2
-    if epoch >= half_epochs:
-        step = (lr - opt.training.final_lr) / (half_epochs - 1)
-        return lr - step * (epoch - half_epochs)
+# # 为了 sweep 的方便, 仍然保留这个简易的 lr_scheduler.
+# def get_linear_cooldown_smallerSlope_lr(opt, epoch, lr):
+#     '''当 epoch 过半之后, lr 线性减小, 当 epoch 跑满时减为 opt.training.final_lr.'''
+#     half_epochs = opt.training.epochs // 2
+#     if epoch >= half_epochs:
+#         step = (lr - opt.training.final_lr) / (half_epochs - 1)
+#         return lr - step * (epoch - half_epochs)
+#     else:
+#         return lr
+
+
+def get_piecewise_linear_warmup_cooldown_lr(opt, epoch, downstream=False):
+    '''带有 warmup 和 cooldown 的分段线性函数'''
+    if downstream:
+        x_pts, y_pts = opt.training.downstream_lr_boundary_points_x, opt.training.downstream_lr_boundary_points_y
+        x_pts = [x_pt * opt.training.epochs for x_pt in x_pts]
+        y_pts = [y_pt * opt.training.downstream_learning_rate for y_pt in y_pts]
     else:
-        return lr
+        x_pts, y_pts = opt.training.lr_boundary_points_x, opt.training.lr_boundary_points_y
+        x_pts = [x_pt * opt.training.epochs for x_pt in x_pts]
+        y_pts = [y_pt * opt.training.learning_rate for y_pt in y_pts]
+    
+    return (lambda t: np.interp([t], x_pts, y_pts)[0])(epoch)
 
 
 def update_learning_rate(opt, optimizer, epoch):
-    '''在每个新的 epoch 都要 cooldown 当前 optimizer 的 lr.'''
+    '''在每个新的 epoch 都要 warmup / cooldown 当前 optimizer 的 lr.'''
     if opt.model.training_type == 'ff':
         if opt.training.test_mode == "one_pass_softmax":
-            optimizer.param_groups[0]["lr"] = get_piecewise_linear_cooldown_lr(
-                opt, epoch, opt.training.learning_rate, opt.training.lr_boundary_points
+            optimizer.param_groups[0]["lr"] = get_piecewise_linear_warmup_cooldown_lr(
+                opt, epoch, downstream=False
             )
-            optimizer.param_groups[1]["lr"] = get_piecewise_linear_cooldown_lr(
-                opt, epoch, opt.training.downstream_learning_rate, opt.training.downstream_lr_boundary_points
+            optimizer.param_groups[1]["lr"] = get_piecewise_linear_warmup_cooldown_lr(
+                opt, epoch, downstream=True
             )
 
         elif opt.training.test_mode == "compute_each_label":
-            optimizer.param_groups[0]["lr"] = get_piecewise_linear_cooldown_lr(
-                opt, epoch, opt.training.learning_rate, opt.training.lr_boundary_points
+            optimizer.param_groups[0]["lr"] = get_piecewise_linear_warmup_cooldown_lr(
+                opt, epoch, downstream=False
             )
 
     elif opt.model.training_type == 'bp':
-        # 为了 sweep 的方便, 在 bp_mlp 网络中, 固定采用 smallerSlope 作为 lr_schedule. 
-        # optimizer.param_groups[0]["lr"] = get_linear_cooldown_smallerSlope_lr(
-        #     opt, epoch, opt.training.learning_rate
-        # )
-        optimizer.param_groups[0]["lr"] = get_piecewise_linear_cooldown_lr(
-            opt, epoch, opt.training.learning_rate, opt.training.lr_boundary_points
+        optimizer.param_groups[0]["lr"] = get_piecewise_linear_warmup_cooldown_lr(
+            opt, epoch, downstream=False
         )
 
     return optimizer
@@ -340,56 +346,48 @@ def print_results(opt, partition, iteration_time, scalar_outputs, epoch=None):
 
         # 再把当前 epoch 的训练/测试结果上传到 wandb.
         if opt.model.training_type == "ff":
-            # "one_pass_softmax" 测试模式下, 存在 cls_loss 与 cls_acc 两个 metric.
+            num_layers = opt.model.depth * 2 + 1
+            wandb_dict1 = {"Loss": scalar_outputs["Loss"],
+                           "Peer_Norm": scalar_outputs["Peer_Norm"],
+                           "cls_acc": scalar_outputs["cls_acc"]}
+            wandb_dict2 = {f"loss_layer_{i}": scalar_outputs[f"loss_layer_{i}"] for i in range(num_layers)}
+            wandb_dict3 = {f"acc_layer_{i}": scalar_outputs[f"acc_layer_{i}"] for i in range(num_layers)}
+            wandb_train_dict = dict(ChainMap(wandb_dict1, wandb_dict2, wandb_dict3))
+            
             if opt.training.test_mode == "one_pass_softmax":
+                # "one_pass_softmax" 测试模式下, 存在 cls_loss 与 cls_acc 两个 metric.
+                wandb_train_dict["cls_loss"] = scalar_outputs["cls_loss"]            
                 if partition == "train":
-                    wandb.log({ "Loss": scalar_outputs["Loss"],
-                                "Peer Normalization": scalar_outputs["Peer Normalization"],
-                                "loss_layer_0": scalar_outputs["loss_layer_0"],
-                                "loss_layer_1": scalar_outputs["loss_layer_1"],
-                                "loss_layer_2": scalar_outputs["loss_layer_2"],
-                                "ff_acc_layer_0": scalar_outputs["ff_accuracy_layer_0"],
-                                "ff_acc_layer_1": scalar_outputs["ff_accuracy_layer_1"],
-                                "ff_acc_layer_2": scalar_outputs["ff_accuracy_layer_2"],
-                                "cls_loss": scalar_outputs["classification_loss"],
-                                "cls_acc": scalar_outputs["classification_accuracy"] })
+                    wandb.log(wandb_train_dict)
                 elif partition == "val":
                     wandb.log({ "Val Loss": scalar_outputs["Loss"],
-                                "Val cls_loss": scalar_outputs["classification_loss"],
-                                "Val cls_acc": scalar_outputs["classification_accuracy"] })
+                                "Val cls_loss": scalar_outputs["cls_loss"],
+                                "Val cls_acc": scalar_outputs["cls_acc"] })
                 elif partition == "test":
                     wandb.log({ "Test Loss": scalar_outputs["Loss"],
-                                "Test cls_loss": scalar_outputs["classification_loss"],
-                                "Test cls_acc": scalar_outputs["classification_accuracy"] })
+                                "Test cls_loss": scalar_outputs["cls_loss"],
+                                "Test cls_acc": scalar_outputs["cls_acc"] })
 
-            # "compute_each_label" 测试模式下, 只存在 cls_acc 这个 metric.
             elif opt.training.test_mode == "compute_each_label":
+                # "compute_each_label" 测试模式下, 只存在 cls_acc 这个 metric.
                 if partition == "train":
-                    wandb.log({ "Loss": scalar_outputs["Loss"],
-                                "Peer Normalization": scalar_outputs["Peer Normalization"],
-                                "loss_layer_0": scalar_outputs["loss_layer_0"],
-                                "loss_layer_1": scalar_outputs["loss_layer_1"],
-                                "loss_layer_2": scalar_outputs["loss_layer_2"],
-                                "ff_acc_layer_0": scalar_outputs["ff_accuracy_layer_0"],
-                                "ff_acc_layer_1": scalar_outputs["ff_accuracy_layer_1"],
-                                "ff_acc_layer_2": scalar_outputs["ff_accuracy_layer_2"],
-                                "cls_acc": scalar_outputs["classification_accuracy"] })
+                    wandb.log(wandb_train_dict)
                 elif partition == "val":
-                    wandb.log({ "Val cls_acc": scalar_outputs["classification_accuracy"] })
+                    wandb.log({ "Val cls_acc": scalar_outputs["cls_acc"] })
                 elif partition == "test":
-                    wandb.log({ "Test cls_acc": scalar_outputs["classification_accuracy"] })
+                    wandb.log({ "Test cls_acc": scalar_outputs["cls_acc"] })
 
         elif opt.model.training_type == "bp":
             if partition == "train":
                 wandb.log({ "Loss": scalar_outputs["Loss"],
-                            "cls_acc": scalar_outputs["classification_accuracy"] })
+                            "cls_acc": scalar_outputs["cls_acc"] })
             elif partition == "val":
                 wandb.log({ "Val Loss": scalar_outputs["Loss"],
-                            "Val cls_acc": scalar_outputs["classification_accuracy"] })
+                            "Val cls_acc": scalar_outputs["cls_acc"] })
             elif partition == "test":
                 wandb.log({ "Test Loss": scalar_outputs["Loss"],
-                            "Test cls_acc": scalar_outputs["classification_accuracy"] })
-        
+                            "Test cls_acc": scalar_outputs["cls_acc"] })
+
         else:
             raise NotImplementedError
 
@@ -406,13 +404,14 @@ def log_results(result_dict, scalar_outputs, num_steps):
 
 
 def overlay_label_on_z(num_classes, z, label):
-    '''z 为 二维 tensor, label 为 0-9 之间的数字;
+    '''注意: 在卷积网络中, z 为四维 tensor: B*C*H*W;
     把 z 的每行前 10 列元素都替换成 label 所指示的那个标签.'''
-    z_labeled = z.clone()
+    z_labeled = z.clone().reshape(z.shape[0], -1)   # 若 z 本身就是二维, 该操作无影响.
 
+    # 下面 z_labeled 已经变成二维了.
     # 必须把 index tensor 放到 gpu 上, 否则它与 z_labeled 就不在同一设备上.
     index = torch.arange(num_classes).cuda()
     z_labeled.index_fill_(1, index, 0)
     z_labeled[:, label] = 1
 
-    return z_labeled
+    return z_labeled.reshape(z.shape)   # modif dqr: 返回的仍是一个四维 tensor.

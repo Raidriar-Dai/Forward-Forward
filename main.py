@@ -14,14 +14,13 @@ def train(opt, model, optimizer):
     '''epoch -> batch -> layer, 完成所有训练, 返回参数训练完毕的 model.'''
     start_time = time.time()
     train_loader = utils.get_data(opt, "train")
-    num_steps_per_epoch = len(train_loader) # 即 num_batches, 总的批次数目.
+    num_steps_per_epoch = len(train_loader) # 即总的批次数目(iterations 数目).
 
     for epoch in range(opt.training.epochs):
         train_results = defaultdict(float)
-        # modif: 当 epoch 比较少, 不想要 lr 逐渐减小时, 可以把 update_lr 注释掉.
-        optimizer = utils.update_learning_rate(opt, optimizer, epoch)
 
-        for inputs, labels in train_loader:
+        for idx, (inputs, labels) in enumerate(train_loader):
+            optimizer = utils.update_learning_rate(opt, optimizer, epoch + (idx + 1)/num_steps_per_epoch)
             inputs, labels = utils.preprocess_inputs(opt, inputs, labels)
 
             optimizer.zero_grad()
@@ -32,7 +31,7 @@ def train(opt, model, optimizer):
 
             optimizer.step()
 
-            # 把当前这个 batch 的训练结果更新到总的 train_results 中, num_batches 决定了这次结果占总结果的权重.
+            # 把当前这个 batch 的训练结果更新到总的 train_results 中, num_steps_per_epoch 决定了这次结果占总结果的权重.
             train_results = utils.log_results(
                 train_results, scalar_outputs, num_steps_per_epoch
             )
@@ -87,7 +86,7 @@ def validate_or_test(opt, model, partition, epoch=None):
 
 
 # 每次跑实验前, 记得更改 config_name="对应配置文件".
-@hydra.main(version_base=None, config_path="configs/", config_name="bp_mnist")
+@hydra.main(version_base=None, config_path="configs/", config_name="ff_convmixer")
 def my_main(opt: DictConfig) -> None:
     opt = utils.parse_args(opt)
 
@@ -107,11 +106,11 @@ def my_main(opt: DictConfig) -> None:
 
 
 # 每次跑实验前, 记得更改 config_name="对应配置文件".
-@hydra.main(version_base=None, config_path="configs/", config_name="cifar10")
-def show_parameters(opt: DictConfig) -> None:
-    '''(自定义)查看 model.parameters() 属性.'''
-    opt = utils.parse_args(opt)
-    utils.show_model_parameters(opt)
+# @hydra.main(version_base=None, config_path="configs/", config_name="cifar10")
+# def show_parameters(opt: DictConfig) -> None:
+#     '''(自定义)查看 model.parameters() 属性.'''
+#     opt = utils.parse_args(opt)
+#     utils.show_model_parameters(opt)
 
 
 if __name__ == "__main__":

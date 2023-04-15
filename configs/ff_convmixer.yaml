@@ -1,0 +1,62 @@
+# 专用于 ff_model_convmixer.py 的配置文件;
+
+seed: 42
+device: "cuda"
+
+input:
+  path: datasets
+  batch_size: 100
+  dataset: cifar10
+  num_classes: 10
+  # val_size: 5000
+
+model:
+  dim: 256
+  depth: 6
+  kernel_size: 5
+  patch_size: 2
+  have_batchnorm: False
+
+  goodness_type: sum
+  training_type: ff
+
+training:
+  epochs: 30
+
+  # 上游 ff layer
+  learning_rate: 1e-4
+  weight_decay: 0.0
+  momentum: 0.9
+
+  # boundary_points 均为比例系数, x 对应 epoch, y 对应 lr.
+  lr_boundary_points_x: [0, 0.4, 1]
+  lr_boundary_points_y: [0, 1, 0.05]
+  # lr_boundary_points_x: [0, 1]
+  # lr_boundary_points_y: [1, 1]
+
+  # 下游 线性分类头
+  test_mode: one_pass_softmax
+  downstream_learning_rate: 1e-4
+  downstream_weight_decay: 0.0
+
+  # boundary_points 均为比例系数, x 对应 epoch, y 对应 lr.
+  downstream_lr_boundary_points_x: [0, 0.4, 1]
+  downstream_lr_boundary_points_y: [0, 1, 0.05]
+  # downstream_lr_boundary_points_x: [0, 1]
+  # downstream_lr_boundary_points_y: [1, 1]
+
+  to_validate: False
+  final_test: True
+
+hydra:
+  run:
+    dir: logs
+
+wandb:
+  setup:
+      project: ff-convmixer
+      entity: raidriar_dai
+      mode: online
+  watch:
+      log: all
+      log_freq: 100
