@@ -3,8 +3,8 @@ import torch
 
 from src import utils
 
-class FF_Dataset(torch.utils.data.Dataset):
-    '''最原始的 FF_Dataset: 只贴一行 label, 在 channel=0 的左上角.'''
+class FF_Dataset_Multilabel(torch.utils.data.Dataset):
+    '''pos/neg data 通过在不同 channel 的不同位置贴多个 label 来实现.'''
     def __init__(self, opt, partition):
         dataset_dict = {'mnist': utils.get_MNIST_partition, 'cifar10': utils.get_CIFAR10_partition}
         self.opt = opt
@@ -36,7 +36,12 @@ class FF_Dataset(torch.utils.data.Dataset):
             torch.tensor(class_label), num_classes=self.num_classes
         )
         pos_sample = sample.clone()
-        pos_sample[0, 0, : self.num_classes] = one_hot_label
+        pos_sample[0, 0, :10] = one_hot_label
+        pos_sample[0, 1, :10] = one_hot_label
+        pos_sample[1, 14, 11:21] = one_hot_label
+        pos_sample[1, 15, 11:21] = one_hot_label
+        pos_sample[2, 30, 22:] = one_hot_label
+        pos_sample[2, 31, 22:] = one_hot_label
         return pos_sample
 
     def _get_neg_sample(self, sample, class_label):
@@ -48,15 +53,25 @@ class FF_Dataset(torch.utils.data.Dataset):
             torch.tensor(wrong_class_label), num_classes=self.num_classes
         )
         neg_sample = sample.clone()
-        neg_sample[0, 0, : self.num_classes] = one_hot_label
+        neg_sample[0, 0, :10] = one_hot_label
+        neg_sample[0, 1, :10] = one_hot_label
+        neg_sample[1, 14, 11:21] = one_hot_label
+        neg_sample[1, 15, 11:21] = one_hot_label
+        neg_sample[2, 30, 22:] = one_hot_label
+        neg_sample[2, 31, 22:] = one_hot_label
         return neg_sample
 
     def _get_neutral_sample(self, z):
-        z[0, 0, : self.num_classes] = self.uniform_label
+        z[0, 0, :10] = self.uniform_label
+        z[0, 1, :10] = self.uniform_label
+        z[1, 14, 11:21] = self.uniform_label
+        z[1, 15, 11:21] = self.uniform_label
+        z[2, 30, 22:] = self.uniform_label
+        z[2, 31, 22:] = self.uniform_label
         return z
 
     def _generate_sample(self, index):
-        '''返回完整的一组 sample: 包含 pos/neg/neutral sample 以及 class_label'''
+        '''返回完整的 MNIST sample: 包含 pos/neg/neutral sample 以及 class_label'''
         sample, class_label = self.dataset[index]
         pos_sample = self._get_pos_sample(sample, class_label)
         neg_sample = self._get_neg_sample(sample, class_label)

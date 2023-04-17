@@ -3,12 +3,11 @@ import torch
 
 from src import utils
 
-class FF_Dataset(torch.utils.data.Dataset):
-    '''最原始的 FF_Dataset: 只贴一行 label, 在 channel=0 的左上角.'''
+class FF_Dataset_Normalized(torch.utils.data.Dataset):
+    '''在原始 FF_Dataset 的基础上, 多加了 transform.Normalize 这一步.'''
     def __init__(self, opt, partition):
-        dataset_dict = {'mnist': utils.get_MNIST_partition, 'cifar10': utils.get_CIFAR10_partition}
         self.opt = opt
-        self.dataset = dataset_dict[self.opt.input.dataset](opt, partition)
+        self.dataset = utils.get_CIFAR10_partition_normalized(opt, partition)
         self.num_classes = self.opt.input.num_classes
         self.uniform_label = torch.ones(self.num_classes) / self.num_classes
 

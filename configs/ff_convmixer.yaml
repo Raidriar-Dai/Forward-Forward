@@ -21,7 +21,7 @@ model:
   training_type: ff
 
 training:
-  epochs: 30
+  epochs: 100
 
   # 上游 ff layer
   learning_rate: 1e-4
@@ -29,10 +29,10 @@ training:
   momentum: 0.9
 
   # boundary_points 均为比例系数, x 对应 epoch, y 对应 lr.
-  lr_boundary_points_x: [0, 0.4, 1]
-  lr_boundary_points_y: [0, 1, 0.05]
-  # lr_boundary_points_x: [0, 1]
-  # lr_boundary_points_y: [1, 1]
+  # lr_boundary_points_x: [0, 0.2, 1]
+  # lr_boundary_points_y: [0, 1, 0.1]
+  lr_boundary_points_x: [0, 1]
+  lr_boundary_points_y: [1, 1]
 
   # 下游 线性分类头
   test_mode: one_pass_softmax
@@ -40,10 +40,10 @@ training:
   downstream_weight_decay: 0.0
 
   # boundary_points 均为比例系数, x 对应 epoch, y 对应 lr.
-  downstream_lr_boundary_points_x: [0, 0.4, 1]
-  downstream_lr_boundary_points_y: [0, 1, 0.05]
-  # downstream_lr_boundary_points_x: [0, 1]
-  # downstream_lr_boundary_points_y: [1, 1]
+  # downstream_lr_boundary_points_x: [0, 0.2, 1]
+  # downstream_lr_boundary_points_y: [0, 1, 0.1]
+  downstream_lr_boundary_points_x: [0, 1]
+  downstream_lr_boundary_points_y: [1, 1]
 
   to_validate: False
   final_test: True

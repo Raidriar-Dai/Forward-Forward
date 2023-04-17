@@ -247,10 +247,10 @@ class FF_model_convmixer(torch.nn.Module):
             scalar_outputs = {
                 "Loss": torch.zeros(1, device=self.opt.device),
             }
-        
+
         z = inputs["neutral_sample"]
         z = self._layer_norm_all_units(z)
-        
+
         input_classification_model = []
 
         with torch.no_grad():
