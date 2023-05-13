@@ -1,17 +1,31 @@
 import math
 import torch
 import torch.nn as nn
+from torchvision.ops import Permute
 
 import wandb
 
 from src import utils
 
+class Residual(nn.Module):
+    '''输入某种 layer <fn>, 输出 <fn> 的具有 residual connection 的形式.'''
+    def __init__(self, fn):
+        super().__init__()
+        self.fn = fn
+
+    def forward(self, x):
+        return self.fn(x) + x
 
 class FF_model_convmixer(torch.nn.Module):
     '''基于 convmixer 结构实现的 ffa 模型'''
     def __init__(self, opt):
         super().__init__()
         self.opt = opt
+        act_fn_dict = {
+            'relu': nn.ReLU,
+            'relu_full_grad': ReLu_full_grad_module,
+            'gelu': nn.GELU
+        }
 
         # 专门列出 convmixer 的 model hyperparameters.
         self.dim = self.opt.model.dim
@@ -19,59 +33,109 @@ class FF_model_convmixer(torch.nn.Module):
         self.kernel_size = self.opt.model.kernel_size
         self.patch_size = self.opt.model.patch_size
         self.num_classes = self.opt.input.num_classes
+        self.avgpool_size = self.opt.model.avgpool_size
 
-        self.act_fn = ReLu_full_grad_module
-        self.have_batchnorm = self.opt.model.have_batchnorm  # 指示是否有 batchnorm layer.
+        self.act_fn = act_fn_dict[self.opt.model.act_fn]
+        self.norm_layer = self.opt.model.norm_layer
+        self.have_residual = self.opt.model.have_residual
 
         # 以 sequential 作为每一层 layer 的单元结构.
-        if self.have_batchnorm:
-            self.patch_embedding_block = [
+        self.patch_embedding_block = [
+            nn.Sequential(
+                nn.Conv2d(3, self.dim, kernel_size=self.patch_size, stride=self.patch_size),
+                self.act_fn(),
+                nn.BatchNorm2d(self.dim) if self.norm_layer == 'batchnorm' else
                 nn.Sequential(
-                    nn.Conv2d(3, self.dim, kernel_size=self.patch_size, stride=self.patch_size),
-                    self.act_fn(),
-                    nn.BatchNorm2d(self.dim)
-                )
-            ]
+                    Permute((0,2,3,1)),
+                    nn.LayerNorm(self.dim),
+                    Permute((0,3,1,2))
+                ) if self.norm_layer == 'layernorm' else
+                nn.Identity()
+            )
+        ]
 
+        # 给每一个 conv_mixer_block 都套上 Residual, 获得残差输出.
+        if self.have_residual:
             self.conv_mixer_blocks = sum([
                 [
                     # Depthwise convolution(默认没有 Residual Connection)
-                    nn.Sequential(
+                    Residual(nn.Sequential(
                         nn.Conv2d(self.dim, self.dim, self.kernel_size, groups=self.dim, padding="same"),
                         self.act_fn(),
-                        nn.BatchNorm2d(self.dim)
-                    ),
+                        nn.BatchNorm2d(self.dim) if self.norm_layer == 'batchnorm' else
+                        nn.Sequential(
+                            Permute((0,2,3,1)),
+                            nn.LayerNorm(self.dim),
+                            Permute((0,3,1,2))
+                        ) if self.norm_layer == 'layernorm' else
+                        nn.Identity()
+                    )),
                     # Pointwise convolution
-                    nn.Sequential(
+                    Residual(nn.Sequential(
                         nn.Conv2d(self.dim, self.dim, kernel_size=1),
                         self.act_fn(),
-                        nn.BatchNorm2d(self.dim)
-                    )
+                        nn.BatchNorm2d(self.dim) if self.norm_layer == 'batchnorm' else
+                        nn.Sequential(
+                            Permute((0,2,3,1)),
+                            nn.LayerNorm(self.dim),
+                            Permute((0,3,1,2))
+                        ) if self.norm_layer == 'layernorm' else
+                        nn.Identity()
+                    ))
                 ] for i in range(self.depth)
             ], start=[])
 
         else:
-            self.patch_embedding_block = [
-                nn.Sequential(
-                    nn.Conv2d(3, self.dim, kernel_size=self.patch_size, stride=self.patch_size),
-                    self.act_fn(),
-                )
-            ]
-
             self.conv_mixer_blocks = sum([
                 [
                     # Depthwise convolution(默认没有 Residual Connection)
                     nn.Sequential(
                         nn.Conv2d(self.dim, self.dim, self.kernel_size, groups=self.dim, padding="same"),
                         self.act_fn(),
+                        nn.BatchNorm2d(self.dim) if self.norm_layer == 'batchnorm' else
+                        nn.Sequential(
+                            Permute((0,2,3,1)),
+                            nn.LayerNorm(self.dim),
+                            Permute((0,3,1,2))
+                        ) if self.norm_layer == 'layernorm' else
+                        nn.Identity()
                     ),
                     # Pointwise convolution
                     nn.Sequential(
                         nn.Conv2d(self.dim, self.dim, kernel_size=1),
                         self.act_fn(),
+                        nn.BatchNorm2d(self.dim) if self.norm_layer == 'batchnorm' else
+                        nn.Sequential(
+                            Permute((0,2,3,1)),
+                            nn.LayerNorm(self.dim),
+                            Permute((0,3,1,2))
+                        ) if self.norm_layer == 'layernorm' else
+                        nn.Identity()
                     )
                 ] for i in range(self.depth)
             ], start=[])
+
+        # self.patch_embedding_block = [
+        #     nn.Sequential(
+        #         nn.Conv2d(3, self.dim, kernel_size=self.patch_size, stride=self.patch_size),
+        #         self.act_fn(),
+        #     )
+        # ]
+
+        # self.conv_mixer_blocks = sum([
+        #     [
+        #         # Depthwise convolution(默认没有 Residual Connection)
+        #         nn.Sequential(
+        #             nn.Conv2d(self.dim, self.dim, self.kernel_size, groups=self.dim, padding="same"),
+        #             self.act_fn(),
+        #         ),
+        #         # Pointwise convolution
+        #         nn.Sequential(
+        #             nn.Conv2d(self.dim, self.dim, kernel_size=1),
+        #             self.act_fn(),
+        #         )
+        #     ] for i in range(self.depth)
+        # ], start=[])
 
         self.model = nn.ModuleList(
             sum([
@@ -85,7 +149,7 @@ class FF_model_convmixer(torch.nn.Module):
 
         # 只对于 one-pass softmax 实现 ffa.
         if self.opt.training.test_mode == "one_pass_softmax":
-            channels_for_classification_loss = 2 * self.dim * self.depth    # 默认为 2*256*12 = 3072*2
+            channels_for_classification_loss = 2 * self.dim * (self.avgpool_size ** 2) * self.depth    # 默认为 2*256*(1*1)*12 = 3072*2
             self.linear_classifier = nn.Sequential(
                 nn.Linear(channels_for_classification_loss, 10, bias=True)
             )
@@ -130,7 +194,7 @@ class FF_model_convmixer(torch.nn.Module):
         '''输入 z 为 B*C*H*W 四维的. 把 4层channels 分为一组做 layer_norm, 
         这与后面 4层channels 为一组计算 ff_loss 相吻合.'''
         s = z.shape
-        t = torch.reshape(z,(s[0], s[1]//4, -1))
+        t = torch.reshape(z,(s[0], self.opt.model.num_groups_each_layer, -1))
 
         # 现在, t 的形状为 200 * 64 * 1024
         t = t / (torch.sqrt(torch.mean(t ** 2, dim=-1, keepdim=True)) + eps)
@@ -152,7 +216,7 @@ class FF_model_convmixer(torch.nn.Module):
         if self.opt.model.goodness_type == "sum":
             # squared_sum: 每 1024 个 units(相当于 4 个 channels 为一组) 算一个平方和, 
             # 再对 64 组来取平均.
-            z = torch.reshape(x, (x.shape[0], x.shape[1]//4, -1))
+            z = torch.reshape(x, (x.shape[0], self.opt.model.num_groups_each_layer, -1))
             sum_of_squares = torch.mean(torch.sum(z ** 2, dim=-1), dim=-1)
             logits = sum_of_squares - z.shape[-1]    # 这里的 z.shape[-1] 一般为 1024, 即为 theta.
 
@@ -260,7 +324,9 @@ class FF_model_convmixer(torch.nn.Module):
 
                 if idx >= 1:
                     # layer_features 大小应为 100*256*1*1, 其中 100 为 batch_size
-                    layer_features = nn.functional.adaptive_avg_pool2d(z, (1,1))
+                    layer_features = nn.functional.adaptive_avg_pool2d(
+                        z, (self.avgpool_size, self.avgpool_size)
+                        )
                     input_classification_model.append(torch.reshape(layer_features, (layer_features.shape[0], -1)))
 
         input_classification_model = torch.concat(input_classification_model, dim=-1)
