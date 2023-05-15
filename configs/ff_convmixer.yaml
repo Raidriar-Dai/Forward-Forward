@@ -17,7 +17,7 @@ model:
   patch_size: 2
   avgpool_size: 2 # 生成 layer_feature 时所用的 avgpool2d 的大小: avgpool_size ^ 2
   act_fn: relu_full_grad
-  norm_layer: None
+  norm_layer: layernorm
   have_residual: False
 
   goodness_type: sum
@@ -26,7 +26,7 @@ model:
   training_type: ff
 
 training:
-  epochs: 30
+  epochs: 100
 
   # 上游 ff layer
   learning_rate: 1e-4

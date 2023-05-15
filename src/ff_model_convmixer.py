@@ -76,7 +76,7 @@ class FF_model_convmixer(torch.nn.Module):
             self.conv_mixer_blocks = sum([
                 [
                     # Depthwise convolution
-                    Residual(nn.Sequential(
+                    nn.Sequential(
                         nn.Conv2d(self.dim, self.dim, self.kernel_size, groups=self.dim, padding="same"),
                         self.act_fn(),
                         nn.BatchNorm2d(self.dim) if self.norm_layer == 'batchnorm' else
@@ -86,9 +86,9 @@ class FF_model_convmixer(torch.nn.Module):
                             Permute((0,3,1,2))
                         ) if self.norm_layer == 'layernorm' else
                         nn.Identity()
-                    )),
+                    ),
                     # Pointwise convolution(这一层 Residual 是 optional 的)
-                    nn.Sequential(
+                    Residual(nn.Sequential(
                         nn.Conv2d(self.dim, self.dim, kernel_size=1),
                         self.act_fn(),
                         nn.BatchNorm2d(self.dim) if self.norm_layer == 'batchnorm' else
@@ -98,7 +98,7 @@ class FF_model_convmixer(torch.nn.Module):
                             Permute((0,3,1,2))
                         ) if self.norm_layer == 'layernorm' else
                         nn.Identity()
-                    )
+                    ))
                 ] for i in range(self.depth)
             ], start=[])
 
@@ -382,13 +382,3 @@ class ReLu_full_grad_module(torch.nn.Module):
 
     def forward(self, x):
         return self.act_fn.apply(x)
-
-
-class Residual(nn.Module):
-    '''输入某种 layer <fn>, 输出 <fn> 的具有 residual connection 的形式.'''
-    def __init__(self, fn):
-        super().__init__()
-        self.fn = fn
-
-    def forward(self, x):
-        return self.fn(x) + x
